@@ -3,7 +3,8 @@ of two or more ranks runs, and the device type each backend's collectives use.""
 
 import torch.distributed as dist
 
-COLLECTIVE_DEVICE = {"nccl": "cuda", "xccl": "xpu"}
+COLLECTIVE_DEVICE = {"nccl": "cuda", "xccl": "xpu", "hccl": "npu"}
+DEVICE_BACKEND = {"cuda": "nccl", "xpu": "xccl", "npu": "hccl"}
 
 
 def initialized() -> bool:

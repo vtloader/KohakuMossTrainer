@@ -20,7 +20,7 @@ def _matmul_tflops(device: torch.device, n: int, iters: int) -> float:
     if device.type == "cuda":
         major, _ = torch.cuda.get_device_capability(device)
         dtype = torch.bfloat16 if major >= 8 else torch.float16
-    elif device.type == "xpu":
+    elif device.type in ("xpu", "npu"):
         dtype = torch.bfloat16
     else:
         dtype = torch.float32

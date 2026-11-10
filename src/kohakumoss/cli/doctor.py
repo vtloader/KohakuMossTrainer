@@ -29,8 +29,10 @@ from kohakumoss_kernels.hardware.toolchain import compilers, msvc_compilers, vsw
 
 PACKAGES = (
     "torch",
+    "torch-npu",
     "triton",
     "triton-windows",
+    "triton-ascend",
     "tilelang",
     "lycoris-lora",
     "kohaku-engine",
@@ -51,6 +53,14 @@ def versions() -> dict[str, str | None]:
         except metadata.PackageNotFoundError:
             out[name] = None
     return out
+
+
+def _version_of(dist: str) -> str | None:
+    """Installed version of `dist`, None when absent."""
+    try:
+        return metadata.version(dist)
+    except metadata.PackageNotFoundError:
+        return None
 
 
 def devices() -> list[dict]:
@@ -81,12 +91,30 @@ def devices() -> list[dict]:
                     "memory_gib": round(gib(props.total_memory), 2),
                 }
             )
+    if hasattr(torch, "npu") and torch.npu.is_available():
+        for i in range(torch.npu.device_count()):
+            props = torch.npu.get_device_properties(i)
+            arch = arch_of(f"npu:{i}")
+            out.append(
+                {
+                    "index": i,
+                    "name": props.name,
+                    "arch": arch.name,
+                    "memory_gib": round(gib(props.total_memory), 2),
+                    "bf16": arch.has_bf16,
+                    "fp8": arch.has_fp8,
+                }
+            )
     return out
 
 
 def device_kinds() -> list[str]:
     """One device per accelerator kind present, then cpu (the kernel matrix rows)."""
-    kinds = [k for k in ("cuda", "xpu") if getattr(torch, k).is_available()]
+    kinds = [
+        k
+        for k in ("cuda", "xpu", "npu")
+        if getattr(torch, k, None) is not None and getattr(torch, k).is_available()
+    ]
     return [f"{k}:0" for k in kinds] + ["cpu"]
 
 
@@ -153,6 +181,7 @@ def report(memory: bool = False) -> dict:
         "os_release": platform.release(),
         "python": platform.python_version(),
         "torch_cuda": torch.version.cuda,
+        "torch_npu": _version_of("torch-npu"),
         "packages": versions(),
         "devices": devices(),
         "missing": missing(toolchain, smoke),
@@ -166,7 +195,8 @@ def report(memory: bool = False) -> dict:
 
 def _print(rep: dict) -> None:
     print(
-        f"{rep['os']} {rep['os_release']} | Python {rep['python']} | CUDA {rep['torch_cuda']}"
+        f"{rep['os']} {rep['os_release']} | Python {rep['python']} | CUDA "
+        f"{rep['torch_cuda']} | NPU {rep.get('torch_npu') or '-'}"
     )
     for name, ver in rep["packages"].items():
         print(f"  {name:16s} {ver or '-'}")

@@ -115,7 +115,7 @@ def release_callbacks(device, rows: int, release=DEFAULT, stats: bool = True) ->
     ahead of the accounting of what the allocator returned (metric rows every `rows`
     steps; `stats` False leaves the accounting out); nothing on the host."""
     device = torch.device(device)
-    if device.type not in ("cuda", "xpu"):
+    if device.type not in ("cuda", "xpu", "npu"):
         return []
     every = release_every(release)
     releasing = [StepRelease(device, every)] if every else []

@@ -12,8 +12,9 @@ Multi-GPU training is Linux-only by design: on Windows, knob validation rejects 
 | `fsdp` | FSDP2 `fully_shard` per conditioning linear and per block (joint and text-refiner blocks), then the root, every parameter in its own dtype; adapters are sharded with the module they adapt | full finetune that does not fit one card |
 | `pipeline` | `torch.distributed.pipelining` stages over contiguous block ranges | cards without a fast interconnect, or a model that does not fit one card |
 | `threaded` | one process, stages on different devices | mixed GPUs (e.g. 3090 + 2080 Ti) |
+| `tp` | tensor parallel: each rank holds a slice of every block's q / k / v / o / up-gate / down projection | a slow interconnect (one all-reduce per block layer, not per parameter) or a model whose per-layer weights do not fit one card |
 
-Parallel layers: `configs/moss/parallel/parallel_{ddp,fsdp,pipeline,threaded}.py`.
+Parallel layers: `configs/moss/parallel/parallel_{ddp,fsdp,pipeline,threaded,tp}.py`.
 
 ## Run
 
@@ -22,6 +23,10 @@ Parallel layers: `configs/moss/parallel/parallel_{ddp,fsdp,pipeline,threaded}.py
 # footprint fits the card, else ddp over the swap profile (full-finetune.md)
 kohakumoss-config new train --weights models/MOSS-Image-Base --data <dataset> --gpus 2 --name my-lora
 kogine run scripts/train/moss.py --config configs/user/my-lora.py
+
+# tensor parallel over two devices: compose the tp layer instead of ddp / fsdp
+kogine run scripts/train/moss.py --config configs/moss/recipes/recipes_lora_ddp.py
+# (set PARALLEL="tp" and compose configs/moss/parallel/parallel_tp.py)
 
 # a shipped recipe (set WEIGHTS / DATASETS in a file that use_config's it)
 kogine run scripts/train/moss.py --config configs/moss/recipes/recipes_lora_ddp.py
@@ -46,6 +51,7 @@ table with one message each:
 | `ddp` | any (`swap`: one node, shared host masters) | any | any | any | any |
 | `fsdp` | `off` | `gpu` | `compute` | no | no |
 | `pipeline`, `threaded` | `off` | `gpu` | `compute` | no | no |
+| `tp` | `off` | `gpu` | `compute` | no | no |
 
 One line per mode, what it runs:
 
@@ -56,6 +62,44 @@ One line per mode, what it runs:
 - `pipeline`: checkpointing (every `CHECKPOINT`), no memory offload.
 - `threaded`: checkpointing (every `CHECKPOINT`; the async schedule with per-micro-batch
   adapter state needs `gpipe` or `checkpoint='none'`), no memory offload.
+- `tp`: checkpointing (every `CHECKPOINT`), no memory offload.
+
+## Tensor parallel (`tp`)
+
+`PARALLEL="tp"` splits each joint block's projections across the ranks and runs the
+same batch on every one of them (TP splits the weights, not the data):
+
+| projection | split | communication |
+| --- | --- | --- |
+| `q`, `k`, `v` | column, by head | the input is replicated (its gradient all-reduces) |
+| `o` | row, by input column | the output all-reduces |
+| `ffn_up_gate` | column, **the up and gate halves cut separately** | the input is replicated |
+| `ffn_down` | row, by input column | the output all-reduces |
+| norms, embedders, conditioning, head, the text refiner | replicated | gradients average once per step |
+
+- The text refiner is replicated whole: its `qkv` is one fused weight, and cutting it
+  along the output axis would split q, k and v at different points (it is 1-2 blocks,
+  a small part of the parameter count).
+- An adapter on a sharded layer is cut with the axis it reads / writes: `lora_up` with
+  a column-parallel base, `lora_down` with a row-parallel one. A cut matrix needs no
+  communication; an uncut one on a sharded layer sums over the ranks.
+- Widths must divide over the ranks (`heads`, `ffn_dim`): knob validation refuses a
+  plan whose shards would be empty.
+- `SAMPLE_EVERY` / `VALIDATE_EVERY` must be 0, as for `pipeline` / `threaded`: the
+  sampling forward runs on rank 0 only.
+- One collective per row-parallel layer per step (four per block), which is why `tp`
+  wants a fast link (`nccl` / `hccl`), unlike `ddp` whose one bucketed all-reduce
+  scales with the adapter size.
+- `OPTIMIZER="muon"` is refused under `tp`: the orthogonal factor of a weight slice is
+  not the slice of the whole matrix's factor (a column split differs by ~80%), so
+  Muon needs one rank to hold each matrix (`ddp` / `none` / `threaded`).
+- Checkpoints hold the full tensors: every rank's shard is gathered into rank 0's
+  trainable / EMA state, the optimiser state is written per rank, and a resume slices
+  it again. Adapting `PARALLEL="tp"` with the 8-device recipe is the supported way to
+  train a full finetune that does not fit one card but whose blocks do.
+
+On Ascend NPU, `tp` runs on `hccl` and the projections' partial outputs are summed by
+`dist.all_reduce` exactly as on `nccl`.
 
 Each refusal names what the mode runs instead.
 
@@ -480,8 +524,8 @@ A mixed 3090 + 2080 Ti job runs fp16, since the 2080 Ti has no bf16.
 
 | field | decides |
 | --- | --- |
-| `spawns` | one process per entry of `DEVICES` (ddp / fsdp / pipeline) or one process (none / threaded) |
-| `shared_data` | pipeline: every rank draws rank 0's batches, sigma and noise (one data rank); the other kinds: each rank draws its own share, the data split over every rank |
+| `spawns` | one process per entry of `DEVICES` (ddp / fsdp / pipeline / tp) or one process (none / threaded) |
+| `shared_data` | pipeline / tp: every rank draws rank 0's batches, sigma and noise (one data rank); the other kinds: each rank draws its own share, the data split over every rank |
 | `pipelined` | a step is `MICROBATCHES` micro-batches through a pipeline engine instead of `GRAD_ACC` |
 | `stage_rng` | checkpoints keep the RNG of every stage device (threaded) |
 | `begin` | per-run setup before the build (pipeline: the retained-backward patch for the schedule) |

@@ -297,15 +297,15 @@ its `torch._dynamo` import leaves one).
 
 Kernels launch on the current device's queue, so every Triton launch (`Launcher`) and
 TileLang launch (`_blockops.compiled`) runs under `hardware.current.on_device(...)` for
-its tensors' device; without it a tensor on `cuda:1` / `xpu:1` launched while device 0
-is current reads the wrong device (DEVICE_LOST on Intel Arc).
+its tensors' device; without it a tensor on `cuda:1` / `xpu:1` / `npu:1` launched while
+device 0 is current reads the wrong device (DEVICE_LOST on Intel Arc).
 
 `hardware.current` also holds:
 
 | name | role |
 | --- | --- |
 | `synchronize(device)` | the one device-wait helper of the package |
-| `ACCEL`, `is_accel`, `device_module` | the accelerator device types |
+| `ACCEL`, `is_accel`, `device_module`, `module_of`, `default_type` | the accelerator device types (cuda, xpu, npu) and each one's torch module; `default_type()` is the first available one |
 | `saved_tensor_hooks_active()` | the one probe of torch's saved-tensor hook stack (a checkpointed forward or its recompute, activation offload) |
 | `rng_kept(devices)` | `torch.random.fork_rng` over the CPU and the given accelerator devices |
 
@@ -322,7 +322,9 @@ fork).
 `backends/compile` registers torch.compile of every block op's eager reference and of
 the eager compositions of the fused linear ops (`compile/ops.py`, `COMPILED`). Kernel
 backends choose against it per shape (`compile/choice.py`); its probe on a GPU is
-Triton's (inductor's GPU code is Triton), on CPU it needs the host C++ compiler.
+Triton's (inductor's GPU code is Triton), on NPU it compiles one tiny graph through
+torchair (`backend="npu"`) and fails when that graph cannot be lowered, on CPU it needs
+the host C++ compiler.
 
 **Call patterns.** A `CompiledOp` keeps one compiled callable, with its own code object
 and Dynamo cache, per call pattern: what Dynamo guards on besides shapes.

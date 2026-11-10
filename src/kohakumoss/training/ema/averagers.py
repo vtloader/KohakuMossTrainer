@@ -102,7 +102,7 @@ class _BufferEMA:
         self.before_read: Callable[[], None] = nothing
         self.buffers = {
             tag: [
-                p.detach().to(device=device or p.device, dtype=torch.float32, copy=True)
+                p.detach().to(device=device or p.device, dtype=torch.float32).clone()
                 for p in self.params
             ]
             for tag in self.tags

@@ -6,11 +6,13 @@ import torch
 
 
 class EventClock:
-    """Named device intervals of the step between `begin()` and `end()` (CUDA)."""
+    """Named device intervals of the step between `begin()` and `end()` (CUDA, XPU,
+    NPU)."""
 
     def __init__(self, device: torch.device):
         self.device = torch.device(device)
-        self.pool: list[torch.cuda.Event] = []
+        self.dm = torch.get_device_module(self.device)
+        self.pool: list = []
         self.used = 0
         self.marks: list[tuple[str, int, int]] = []
         self.span: tuple[int, int] | None = None
@@ -19,10 +21,11 @@ class EventClock:
     def _event(self) -> int:
         i = self.used
         if i == len(self.pool):
-            self.pool.append(torch.cuda.Event(enable_timing=True))
+            self.pool.append(self.dm.Event(enable_timing=True))
         self.pool[i].record()
         self.used = i + 1
         return i
+
 
     def begin(self) -> None:
         """Start a step: the previous step's intervals are dropped."""
@@ -58,7 +61,7 @@ class EventClock:
 
 
 class NoClock:
-    """Placeholder off CUDA: records nothing, reads {}."""
+    """Placeholder on the host: records nothing, reads {}."""
 
     def begin(self) -> None:
         return None
@@ -77,6 +80,6 @@ class NoClock:
 
 
 def build_clock(device: torch.device | str):
-    """EventClock on a CUDA device, else NoClock."""
+    """EventClock on an accelerator (CUDA, XPU, NPU), else NoClock."""
     device = torch.device(device)
-    return EventClock(device) if device.type == "cuda" else NoClock()
+    return EventClock(device) if device.type in ("cuda", "xpu", "npu") else NoClock()

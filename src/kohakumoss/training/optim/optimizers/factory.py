@@ -74,6 +74,8 @@ def _need(module, name: str):
 
 @OPTIMIZERS.register("adamw")
 def build_adamw(groups, device, lr, betas, eps, **_):
+    # torch's fused AdamW is picked on CUDA only: its found_inf skip is what the
+    # non-finite gate reads (the Ascend fused step has no such flag)
     fused = device.type == "cuda" and all(
         p.dtype in (torch.float32, torch.float16, torch.bfloat16)
         for g in groups

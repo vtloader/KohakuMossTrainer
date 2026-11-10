@@ -30,8 +30,8 @@ By hand, NVIDIA GPUs (one environment; [install.md](install.md) lists the extras
 
 ```bash
 uv venv -p 3.12 .venv
-uv pip install --python .venv/Scripts/python.exe "torch>=2.13,<2.15" torchvision --index-url https://download.pytorch.org/whl/cu130
-uv pip install --python .venv/Scripts/python.exe -e ".[cuda]" "torch>=2.13,<2.15" --extra-index-url https://download.pytorch.org/whl/cu130 --index-strategy unsafe-best-match
+uv pip install --python .venv/Scripts/python.exe "torch>=2.10,<2.15" torchvision --index-url https://download.pytorch.org/whl/cu130
+uv pip install --python .venv/Scripts/python.exe -e ".[cuda]" "torch>=2.10,<2.15" --extra-index-url https://download.pytorch.org/whl/cu130 --index-strategy unsafe-best-match
 .venv/Scripts/kohakumoss-doctor
 ```
 
@@ -41,8 +41,8 @@ CUDA-only `kernels` extra (the XPU torch wheel brings Intel's Triton):
 
 ```bash
 uv venv -p 3.12 .venv-xpu
-uv pip install --python .venv-xpu/Scripts/python.exe "torch>=2.13,<2.15" torchvision --index-url https://download.pytorch.org/whl/xpu
-uv pip install --python .venv-xpu/Scripts/python.exe -e ".[xpu]" "torch>=2.13,<2.15" --extra-index-url https://download.pytorch.org/whl/xpu --index-strategy unsafe-best-match
+uv pip install --python .venv-xpu/Scripts/python.exe "torch>=2.10,<2.15" torchvision --index-url https://download.pytorch.org/whl/xpu
+uv pip install --python .venv-xpu/Scripts/python.exe -e ".[xpu]" "torch>=2.10,<2.15" --extra-index-url https://download.pytorch.org/whl/xpu --index-strategy unsafe-best-match
 .venv-xpu/Scripts/kohakumoss-doctor
 ```
 

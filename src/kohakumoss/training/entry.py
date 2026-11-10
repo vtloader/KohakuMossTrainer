@@ -193,14 +193,12 @@ def writer_first(rank: int, world: int, build):
 
 def _device(k: dict, rank: int) -> torch.device:
     index = k["DEVICES"][rank % len(k["DEVICES"])]
-    match _device_type():
-        case "cuda":
-            torch.cuda.set_device(index)
-            return torch.device("cuda", index)
-        case "xpu":
-            return torch.device("xpu", index)
-        case _:
-            return torch.device("cpu")
+    kind = _device_type()
+    mod = getattr(torch, kind, None) if kind != "cpu" else None
+    if mod is None:
+        return torch.device("cpu")
+    mod.set_device(index)
+    return torch.device(kind, index)
 
 
 def _snapshot(k: dict) -> dict:
@@ -349,7 +347,7 @@ def worker(
     )
     engine, objective, names, keep = layout.stages(ctx, prec)
     if keep is not None:
-        release_nonlocal(built.backbone, keep)
+        release_nonlocal(built.backbone, keep, device)
     torch.manual_seed(k["SEED"] + rank)  # per-rank stream for everything after build
     hooks = layout.hooks(ctx)
     init_weights(k, built, output_dir)

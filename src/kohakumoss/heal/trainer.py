@@ -31,6 +31,7 @@ from kohakumoss.heal.sites import model_sites, norm_path
 from kohakumoss.heal.student import build_models, stored_gain, train_writers
 from kohakumoss.heal.wnorm import anneal_t
 from kohakumoss.logging.log import get_logger, setup
+from kohakumoss.offload.accel import release_cache
 from kohakumoss.training.build.loop import build_step
 from kohakumoss.training.callbacks.evaluate import FixedSigma
 from kohakumoss.training.optim.optimizers.adamw16 import AdamW16
@@ -283,7 +284,7 @@ class Heal:
         self.opts.clear()
         for p in self.m.student.parameters():
             p.grad = None
-        torch.cuda.empty_cache()
+        release_cache(self.m.student.device)
 
 
 def run(env, c: HealConfig, k: dict, k_t: dict) -> None:

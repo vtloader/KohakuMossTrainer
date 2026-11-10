@@ -20,6 +20,10 @@ PEAK_TFLOPS = (
     ("H100 PCIe", 756.0),
     ("H100", 989.0),
     ("NVIDIA L4", 121.0),
+    # Ascend: dense bf16 TFLOP/s per chip
+    ("Ascend910B", 280.0),
+    ("Ascend910_93", 280.0),
+    ("Ascend910", 320.0),
 )
 TRAIN_FACTOR = {"full": 3.0, "adapter": 2.0}
 
@@ -47,9 +51,9 @@ def step_flops(fwd: float, mode: str, recompute: bool) -> float:
 
 def peak_tflops(device: torch.device) -> float | None:
     """Nominal dense fp16/bf16 tensor-core peak (fp32 accumulate), None when unknown."""
-    if device.type != "cuda":
+    if device.type not in ("cuda", "npu"):
         return None
-    name = torch.cuda.get_device_name(device)
+    name = torch.get_device_module(device).get_device_name(device)
     for key, value in PEAK_TFLOPS:
         if key in name:
             return value

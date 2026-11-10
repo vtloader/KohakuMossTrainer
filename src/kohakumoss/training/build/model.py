@@ -104,6 +104,7 @@ def workload(
         img = int(k["MAX_TOKENS"] * share)
         txt = k["MAX_TOKENS"] - img
     compute_bytes = torch.empty((), dtype=compute).element_size()
+    parallel = k["PARALLEL"]
     return Workload(
         arch=cfg,
         img_tokens=img,
@@ -111,7 +112,9 @@ def workload(
         full_ft=is_full(k),
         compute_bytes=compute_bytes,
         world=world,
-        sharded=k["PARALLEL"] == "fsdp",
+        # FSDP shards every parameter, TP only the blocks' projections (the same
+        # per-rank weight bytes here: the replicated part is small)
+        sharded=parallel in ("fsdp", "tp"),
         sharded_grads=fsdp_grads_sharded(k),
         gathered=k["FSDP_RESHARD"] == "backward",
         ema_decays=decay_count(k["EMA"]),
@@ -277,6 +280,11 @@ def build_model(
     trainable = build_trainable(k, backbone, prec, device)
     apply_param_dtypes(backbone, prec, _ids(trainable), k["OPTIMIZER"] == "adamw16")
     engines.exclude_params(trainable.trainable_params())
+    if k["PARALLEL"] == "tp":
+        # before the prewarm and the prewarm's twin: both must see the cut weights
+        from kohakumoss.parallel.tp_shard import shard as shard_tp
+
+        backbone._tp_plan = shard_tp(backbone)
     backbone.bind_ops(OpSet.resolve(device, prec.compute, k["KERNELS"]))
     reserve = step_reserve(k, plan)
     if feed is None:

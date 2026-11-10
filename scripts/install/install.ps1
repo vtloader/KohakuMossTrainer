@@ -1,8 +1,9 @@
 # Windows install: torch from the index for this GPU / driver, kohakumoss with its default extra, the doctor.
 # Usage: powershell -ExecutionPolicy Bypass -File scripts\install\install.ps1 (a clone installs editable).
+# Ascend NPUs run on Linux only; this helper covers CUDA and Intel Arc.
 $ErrorActionPreference = "Stop"
 
-$TorchSpec = if ($env:KM_TORCH) { $env:KM_TORCH } else { "torch>=2.13,<2.15" }
+$TorchSpec = if ($env:KM_TORCH) { $env:KM_TORCH } else { "torch>=2.10,<2.15" }
 $Python = "3.12"
 $Manual = "install by hand: docs/guides/install.md#manual-install"
 $Root = Resolve-Path (Join-Path $PSScriptRoot "..\..")

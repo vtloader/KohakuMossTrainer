@@ -62,4 +62,4 @@ class NoTimeline:
 
 def build_timeline(device: torch.device | str):
     device = torch.device(device)
-    return VramTimeline(device) if device.type in ("cuda", "xpu") else NoTimeline()
+    return VramTimeline(device) if device.type in ("cuda", "xpu", "npu") else NoTimeline()

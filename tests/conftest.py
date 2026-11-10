@@ -114,21 +114,25 @@ def _cuda_arch():
 def pytest_collection_modifyitems(config, items):
     arch = _cuda_arch()
     has_xpu = hasattr(torch, "xpu") and torch.xpu.is_available()
+    has_npu = hasattr(torch, "npu") and torch.npu.is_available()
     n_gpu = torch.cuda.device_count() if torch.cuda.is_available() else 0
+    n_npu = torch.npu.device_count() if has_npu else 0
     for item in items:
         marks = {m.name for m in item.iter_markers()}
         if "cuda" in marks and arch is None:
             item.add_marker(pytest.mark.skip(reason="no CUDA GPU"))
-        if "gpu" in marks and arch is None and not has_xpu:
-            item.add_marker(pytest.mark.skip(reason="no CUDA or XPU device"))
+        if "gpu" in marks and arch is None and not has_xpu and not has_npu:
+            item.add_marker(pytest.mark.skip(reason="no CUDA, XPU or NPU device"))
         for name, sm in SM_MARKERS.items():
             if name in marks and (arch is None or arch.sm != sm):
                 item.add_marker(pytest.mark.skip(reason=f"needs {name}"))
         if "xpu" in marks and not has_xpu:
             item.add_marker(pytest.mark.skip(reason="no XPU"))
+        if "npu" in marks and not has_npu:
+            item.add_marker(pytest.mark.skip(reason="no NPU"))
         if "windows" in marks and sys.platform != "win32":
             item.add_marker(pytest.mark.skip(reason="Windows only"))
-        if "multi_gpu" in marks and n_gpu < 2:
+        if "multi_gpu" in marks and n_gpu < 2 and n_npu < 2:
             item.add_marker(pytest.mark.skip(reason="needs two GPUs"))
         if "real_weights" in marks and not os.environ.get("KOHAKUMOSS_WEIGHTS"):
             item.add_marker(pytest.mark.skip(reason="KOHAKUMOSS_WEIGHTS unset"))
@@ -182,13 +186,13 @@ def _logging_roots():
 
 @pytest.fixture
 def device():
-    """`KOHAKUMOSS_TEST_DEVICE` (e.g. xpu:1) when set, else CUDA, XPU, CPU."""
+    """`KOHAKUMOSS_TEST_DEVICE` (e.g. xpu:1) when set, else CUDA, XPU, NPU, CPU."""
     if os.environ.get("KOHAKUMOSS_TEST_DEVICE"):
         return torch.device(os.environ["KOHAKUMOSS_TEST_DEVICE"])
-    if torch.cuda.is_available():
-        return torch.device("cuda")
-    if hasattr(torch, "xpu") and torch.xpu.is_available():
-        return torch.device("xpu")
+    for kind in ("cuda", "xpu", "npu"):
+        mod = getattr(torch, kind, None)
+        if mod is not None and mod.is_available():
+            return torch.device(kind)
     return torch.device("cpu")
 
 

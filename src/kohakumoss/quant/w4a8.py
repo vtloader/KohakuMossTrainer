@@ -22,7 +22,7 @@ from kohakumoss_kernels.quant import quant_linear_eager
 from kohakumoss_kernels.quant.rotated import quant_linear_rotated_eager
 
 BITS = (4, 6)
-COMPILED_KINDS = ("cuda", "xpu")
+COMPILED_KINDS = ("cuda", "xpu", "npu")
 
 
 def geometry(q: Tensor, s_rel: Tensor, group: int) -> tuple[int, int, int]:

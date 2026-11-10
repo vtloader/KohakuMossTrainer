@@ -24,6 +24,11 @@ def fused_adamw(master, grad, m, v, step, group, found_inf=None) -> None:
     `decay_to_one` decay the master towards 1 by `lr * decay_to_one_coef`."""
     step += 1
     b1, b2 = group["betas"]
+    holds = found_inf is None or honours_found_inf(master.device)
+    if found_inf is not None and not holds:
+        # The Ascend fused kernel updates first and reads found_inf afterwards: keep
+        # the tensors it would change (one copy per flagged step).
+        before = (master.clone(), m.clone(), v.clone())
     torch._fused_adamw_(
         [master],
         [grad],
@@ -43,10 +48,21 @@ def fused_adamw(master, grad, m, v, step, group, found_inf=None) -> None:
     )
     if found_inf is not None:
         step -= found_inf
+        if not holds:
+            keep = found_inf.bool()
+            master.copy_(torch.where(keep, before[0], master))
+            m.copy_(torch.where(keep, before[1], m))
+            v.copy_(torch.where(keep, before[2], v))
     if group.get("decay_to_one"):
         k = group["lr"] * group["decay_to_one_coef"]
         keep = 1.0 if found_inf is None else 1.0 - found_inf
         master.sub_((master - 1.0) * (k * keep))
+
+
+def honours_found_inf(device: torch.device | str) -> bool:
+    """`torch._fused_adamw_` leaves a parameter untouched where `found_inf` is set
+    (CUDA); the Ascend build steps it anyway (the caller keeps the tensors)."""
+    return torch.device(device).type != "npu"
 
 
 def make_groups(params, defaults: dict) -> list[dict]:

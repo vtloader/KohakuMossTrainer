@@ -57,8 +57,10 @@ def text_encoder(
         )
     spec = factory_plan(dtype, plan)
     on_host = spec.memory == "cpu"
-    if not on_host and str(device) == "cuda" and not torch.cuda.is_available():
-        raise RuntimeError("the text-encoder factory defaults to CUDA; pass device=")
+    kind = torch.device(device).type
+    mod = getattr(torch, kind, None)
+    if not on_host and mod is not None and not mod.is_available():
+        raise RuntimeError(f"the text-encoder factory default is {kind}; pass device=")
     return QwenTextEncoder.from_pretrained(
         path, device, spec, max_length, output_device="cpu"
     )

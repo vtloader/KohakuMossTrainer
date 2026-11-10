@@ -37,4 +37,4 @@ def set_int8_compute(module: nn.Module, dgrad: str) -> int:
 def work_device(device) -> torch.device:
     """Where weights are quantized: the compute device when it is an accelerator."""
     device = torch.device(device)
-    return device if device.type in ("cuda", "xpu") else torch.device("cpu")
+    return device if device.type in ("cuda", "xpu", "npu") else torch.device("cpu")

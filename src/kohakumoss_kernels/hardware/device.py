@@ -76,16 +76,29 @@ class Device:
 
     @property
     def key(self) -> str:
-        """Cache key: card, arch, CUDA and torch versions."""
-        cuda = torch.version.cuda or torch.version.hip or "none"
+        """Cache key: card, arch, backend runtime and torch versions."""
+        runtime = torch.version.cuda or torch.version.hip
+        if runtime is None and self.kind == "npu":
+            runtime = getattr(torch, "npu", None) and _npu_version()
+        runtime = runtime or "none"
         name = self.name.replace(" ", "_").replace("/", "_")
-        return f"{name}-sm{self.sm}-cu{cuda}-torch{torch.__version__.split('+')[0]}"
+        return f"{name}-sm{self.sm}-cu{runtime}-torch{torch.__version__.split('+')[0]}"
 
     @property
     def measured(self) -> bool:
         return not any(
             math.isnan(v) for v in (self.mma_tflops, self.dram_gbs, self.l2_gbs)
         )
+
+
+def _npu_version() -> str:
+    """The torch_npu version, "npu" when it cannot be read."""
+    try:
+        import torch_npu
+
+        return str(torch_npu.__version__)
+    except (ImportError, AttributeError):
+        return "npu"
 
 
 def query(device: torch.device | str) -> Device:
@@ -117,6 +130,19 @@ def query(device: torch.device | str) -> Device:
                 regs_per_sm=65536,
                 l2_bytes=4 << 20,
                 memory_bytes=p.total_memory,
+            )
+        case "npu":
+            p = torch.npu.get_device_properties(device)
+            return Device(
+                name=getattr(p, "name", "npu"),
+                kind="npu",
+                sm=0,
+                sms=int(getattr(p, "vector_core_num", 0) or 0),
+                smem_per_block=0,
+                smem_per_sm=0,
+                regs_per_sm=0,
+                l2_bytes=int(getattr(p, "L2_cache_size", 4 << 20) or (4 << 20)),
+                memory_bytes=int(p.total_memory),
             )
         case _:
             return Device("cpu", "cpu", 0, os.cpu_count() or 1, 0, 0, 0, 0, 0)
@@ -158,10 +184,18 @@ def measure(dev: Device, device: torch.device) -> Device:
 
 
 def tracing() -> bool:
-    """Inside torch.compile / fake-tensor tracing / CUDA graph capture: no measuring."""
+    """Inside torch.compile / fake-tensor tracing / accelerator graph capture: no
+    measuring."""
     if torch.compiler.is_compiling() or detect_fake_mode() is not None:
         return True
-    return torch.cuda.is_available() and torch.cuda.is_current_stream_capturing()
+    for kind in ("cuda", "npu"):
+        mod = getattr(torch, kind, None)
+        if mod is not None and mod.is_available():
+            capturing = getattr(mod, "is_current_stream_capturing", None)
+            if capturing is not None and capturing():
+                return True
+    return False
+
 
 
 def planning_device(device: torch.device | str) -> Device:

@@ -9,7 +9,7 @@ SM_TABLE = (70, 75, 80, 86, 89, 90, 100, 120)
 
 @dataclass(frozen=True)
 class Arch:
-    """One arch-table entry. `name` is `smXX`, `xpu` or `cpu`."""
+    """One arch-table entry. `name` is `smXX`, `xpu`, `npu` or `cpu`."""
 
     name: str
     sm: int
@@ -21,6 +21,10 @@ class Arch:
     @property
     def is_cuda(self) -> bool:
         return self.kind == "cuda"
+
+    @property
+    def is_accel(self) -> bool:
+        return self.kind in ("cuda", "xpu", "npu")
 
 
 def _cuda_arch(major: int, minor: int) -> Arch:
@@ -38,6 +42,8 @@ def _cuda_arch(major: int, minor: int) -> Arch:
 
 CPU = Arch("cpu", 0, "cpu", True, False, False)
 XPU = Arch("xpu", 0, "xpu", True, False, True)
+# Ascend: 16-bit matmuls with fp32 accumulation; no fp8 / MXFP8 GEMMs through torch.
+NPU = Arch("npu", 0, "npu", True, False, True)
 
 
 def arch_of(device: torch.device | str) -> Arch:
@@ -49,5 +55,7 @@ def arch_of(device: torch.device | str) -> Arch:
             return _cuda_arch(major, minor)
         case "xpu":
             return XPU
+        case "npu":
+            return NPU
         case _:
             return CPU

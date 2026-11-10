@@ -45,7 +45,7 @@ BATCH_PIXELS = 4 * 1024 * 1024
 
 def _has_bf16(device: torch.device) -> bool:
     """bf16 on `device`: a CUDA card that has it (or one this process cannot query),
-    XPU, and the host (natively, or through `host_gemm`'s fp32-accumulated 16-bit
+    XPU / NPU, and the host (natively, or through `host_gemm`'s fp32-accumulated 16-bit
     GEMMs)."""
     match device.type:
         case "cuda":

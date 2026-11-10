@@ -37,6 +37,10 @@ VRAMS = ["8", "12", "16", "24", "48", "auto"]
 @pytest.fixture(autouse=True)
 def linux_cpu(monkeypatch):
     monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
+    for kind in ("xpu", "npu"):
+        mod = getattr(torch, kind, None)
+        if mod is not None:
+            monkeypatch.setattr(mod, "is_available", lambda: False)
     monkeypatch.setattr(sys, "platform", "linux")
 
 

@@ -50,8 +50,9 @@ torch comes from the PyTorch index that matches your GPU and driver; the install
 detects both, installs torch from that index, then KohakuMoss with its default extra,
 then runs `kohakumoss-doctor`, which lists anything missing with the command that fixes
 it. Requirements: Python 3.10+ (the helpers make a 3.12 venv), an NVIDIA driver for CUDA
-12.6+ or the Intel Arc driver; on Windows the Visual Studio Build Tools ("Desktop
-development with C++"); for sm70 / sm75 the CUDA toolkit (`nvcc`).
+12.6+, the Intel Arc driver, or Ascend CANN with `torch_npu` (2.10.0); on Windows the
+Visual Studio Build Tools ("Desktop development with C++"); for sm70 / sm75 the CUDA
+toolkit (`nvcc`).
 
 Windows (PowerShell):
 
@@ -76,13 +77,25 @@ the package:
 
 ```bash
 uv venv -p 3.12
-uv pip install "torch>=2.13,<2.15" torchvision --index-url https://download.pytorch.org/whl/cu130
-uv pip install "kohakumoss[cuda]" "torch>=2.13,<2.15" --extra-index-url https://download.pytorch.org/whl/cu130 --index-strategy unsafe-best-match
+uv pip install "torch>=2.10,<2.15" torchvision --index-url https://download.pytorch.org/whl/cu130
+uv pip install "kohakumoss[cuda]" "torch>=2.10,<2.15" --extra-index-url https://download.pytorch.org/whl/cu130 --index-strategy unsafe-best-match
 ```
 
 Intel Arc, Google Colab, the extras and the Triton / TileLang toolchains:
 [docs/guides/install.md](docs/guides/install.md); Windows details and the feature
 matrix: [docs/guides/install-windows.md](docs/guides/install-windows.md).
+
+A point-and-click page over the same pipeline (generate, and optionally launch
+training) ships as an extra:
+
+```bash
+pip install -e ".[webui]"
+kohakumoss-webui          # http://127.0.0.1:7860
+```
+
+See [docs/guides/webui.md](docs/guides/webui.md): generate, launch training, and watch
+its metrics and the NPU's power / temperature / HBM live. The training job keeps running
+when the page is reloaded or restarted, and the page picks it up again.
 
 ## Quick start
 
@@ -158,13 +171,14 @@ By compute capability; the kernel column is the arch's first backend
 | sm100 Blackwell | Triton, then TileLang, compile, eager | bf16, fp16 | fp8, MXFP8 (block-scaled MMA) | supported, not tested | B200 |
 | sm120 Blackwell | Triton, then TileLang, compile, eager | bf16, fp16 | fp8, MXFP8 (block-scaled MMA) | tested | RTX 5090, RTX PRO 6000 Blackwell |
 | Intel Xe (XPU) | Triton (Intel), then compile, eager | bf16 | - | supported, not tested | Arc B-series |
+| Ascend NPU | eager (torchair's `npu` graphs where they compile) | bf16 | - | supported | Ascend 910B / 910_93 |
 
 (1) Tested during this release's development (training runs, DDP, the low-VRAM layers,
 the sm70 kernel suite); the final release tree's test suite was not re-run on sm70 (test
 host offline at release time).
 
 - **Windows:** sm75, sm86, sm89, sm120 and Intel Arc run every single-GPU feature;
-  multi-GPU training is Linux-only.
+  multi-GPU training is Linux-only (as on Ascend NPU).
 - **Per-card choice:** each op runs its kernel or `torch.compile`, whichever is measured
   faster on that card; the eager path is the reference both are checked against
   ([docs/performance/](docs/performance/README.md)).

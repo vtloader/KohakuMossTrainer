@@ -1,12 +1,13 @@
-"""Device-generic stream / event access for the offload engines: CUDA and XPU run the
-side-stream paths, every other device the synchronous host paths."""
+"""Device-generic stream / event access for the offload engines: CUDA, XPU and NPU run
+the side-stream paths, every other device the synchronous host paths."""
 
 import os
 import sys
 
 import torch
 
-from kohakumoss_common.devices import streamed_type
+from kohakumoss_common.devices import ORDER, streamed_type
+from kohakumoss_kernels.hardware.current import module_of
 from kohakumoss_kernels.hardware.current import with_index as with_index
 from kohakumoss_kernels.hardware.memory import mem_info
 
@@ -17,7 +18,7 @@ HEADROOM = 0.92
 _SET_ALLOCATOR = getattr(
     torch._C,
     "_accelerator_setAllocatorSettings",
-    torch.cuda.memory._set_allocator_settings,
+    getattr(getattr(torch.cuda, "memory", None), "_set_allocator_settings", None),
 )
 
 
@@ -32,11 +33,11 @@ DONE = DoneEvent()
 
 
 def default_type() -> str:
-    """The accelerator a run uses: cuda, else xpu, else cpu."""
-    if torch.cuda.is_available():
-        return "cuda"
-    if hasattr(torch, "xpu") and torch.xpu.is_available():
-        return "xpu"
+    """The accelerator a run uses: cuda, else xpu, else npu, else cpu."""
+    for kind in ORDER:
+        mod = module_of(kind)
+        if mod is not None and mod.is_available():
+            return kind
     return "cpu"
 
 
@@ -46,7 +47,8 @@ def streamed(device: torch.device | str) -> bool:
 
 
 def module(device: torch.device | str):
-    """`torch.cuda` / `torch.xpu` for `device` (Stream, Event, stream, current_stream)."""
+    """`torch.cuda` / `torch.xpu` / `torch.npu` for `device` (Stream, Event, stream,
+    current_stream)."""
     return torch.get_device_module(torch.device(device))
 
 
@@ -58,8 +60,9 @@ def release_cache(device: torch.device | str) -> None:
 
 def release_host_cache() -> None:
     """Return the caching host allocator's free pinned blocks to the system."""
-    if torch.accelerator.is_available():
-        torch.accelerator.empty_host_cache()
+    empty = getattr(torch.accelerator, "empty_host_cache", None)
+    if empty is not None and torch.accelerator.is_available():
+        empty()
 
 
 def configure_allocator(device: torch.device | str) -> str:

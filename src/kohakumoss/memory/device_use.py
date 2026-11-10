@@ -9,11 +9,12 @@ import torch
 from kohakumoss.logging.log import log_table
 from kohakumoss_common.units import GIB
 from kohakumoss_kernels.hardware.current import device_module
+from kohakumoss_kernels.hardware.memory import mem_info
 
 PARTS = ("other", "context", "non_torch", "fragmented", "cached", "allocated")
 WHAT = {
     "other": "other processes and the driver, before this process's context",
-    "context": "CUDA / XPU context (driver, runtime)",
+    "context": "CUDA / XPU / NPU context (driver, runtime)",
     "non_torch": "outside the torch allocator: kernel modules, library state, NCCL",
     "fragmented": "torch reserved, free inside split blocks",
     "cached": "torch reserved, free whole blocks",
@@ -32,15 +33,29 @@ def _nvml_used(device: torch.device) -> int | None:
         return None
 
 
+def _npu_driver_used(device: torch.device) -> int | None:
+    """Device-wide used bytes of an NPU from the driver, else None."""
+    info = mem_info(device)
+    return None if info is None else info[1] - info[0]
+
+
+def _default_used(device: torch.device) -> int | None:
+    """The device-wide used bytes NVML / the NPU driver reports without this process's
+    accounting, None where the build has no such query (XPU)."""
+    if device.type == "npu":
+        return _npu_driver_used(device)
+    return _nvml_used(device)
+
+
 class DeviceUse:
     """Construct before the process's first allocation on `device`. With SMI only,
     `context` holds the other processes too (`other` is 0). `mem` (torch.cuda /
     torch.xpu) and `nvml_used` are injectable."""
 
-    def __init__(self, device, mem=None, nvml_used=_nvml_used):
+    def __init__(self, device, mem=None, nvml_used=None):
         self.device = torch.device(device)
         self.mem = mem if mem is not None else device_module(self.device)
-        before = nvml_used(self.device)
+        before = (nvml_used or _default_used)(self.device)
         after = self.used()
         self.separated = before is not None
         self.other = before if self.separated else 0

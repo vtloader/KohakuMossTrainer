@@ -26,7 +26,10 @@ layer to the LyCORIS entry point once; adapter kernel work belongs in LyCORIS it
 
 Targets: sm70 / sm75 (V100, 2080 Ti) through TileLang kernels; sm86 / sm89 / sm120 (3090,
 4090, RTX 50xx) through Triton kernels with per-arch designs; Intel Arc (XPU) through
-Triton-XPU and eager. Windows support is mandatory for sm75 / sm86 / sm89 / sm120.
+Triton-XPU and eager; Ascend NPU through eager (torchair's `npu` graphs where they
+compile). Multi-device: ddp, fsdp, pipeline, threaded and tensor parallel (tp, the
+block projections split across ranks). Windows support is mandatory for sm75 / sm86 /
+sm89 / sm120.
 
 ## Code Conventions
 

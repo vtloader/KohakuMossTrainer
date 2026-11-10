@@ -44,7 +44,7 @@ def start_anchors(k: dict, trainable, resumed: bool) -> dict[str, Tensor] | None
         return None
     live = trainable.state_dict()
     if not (resumed and k.get("INIT_FROM")):
-        return {n: t.detach().to(ANCHOR_DTYPE, copy=True) for n, t in live.items()}
+        return {n: t.detach().to(ANCHOR_DTYPE).clone() for n, t in live.items()}
     init = k["INIT_FROM"]
     if not os.path.isfile(os.path.join(init, "trainable.safetensors")):
         raise SystemExit(

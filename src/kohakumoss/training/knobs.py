@@ -98,7 +98,7 @@ CHOICES = {
     "ADAPTER_MODE": ("bypass", "merge"),
     "WD_RULES": ("moss", "none", "all"),
     "MEMORY_PROFILE": (*PROFILES, "auto"),
-    "DIST_BACKEND": ("auto", "nccl", "gloo"),
+    "DIST_BACKEND": ("auto", "nccl", "gloo", "hccl"),
     "TUNE": TUNE_MODES,
     "COMPILE": ("off", "block", "model"),
     "DRIVER": ("native", "lightning"),
@@ -167,15 +167,21 @@ def _choices(k: dict) -> list[str]:
     return choice_problems(k, CHOICES)
 
 
+def _accel_devices(k: dict, kind: str) -> list[int]:
+    """Entries of DEVICES that exist as `kind` devices on this host."""
+    mod = getattr(torch, kind, None)
+    count = mod.device_count() if mod is not None and mod.is_available() else 0
+    return [i for i in k["DEVICES"] if isinstance(i, int) and 0 <= i < count]
+
+
 def _cuda_devices(k: dict) -> list[int]:
     """Entries of DEVICES that exist as CUDA devices on this host."""
-    count = torch.cuda.device_count() if torch.cuda.is_available() else 0
-    return [i for i in k["DEVICES"] if isinstance(i, int) and 0 <= i < count]
+    return _accel_devices(k, "cuda")
 
 
 def resolve_precision(k: dict) -> str:
     """PRECISION with "auto" resolved: "bf16" when every training CUDA device has it,
-    else "fp16"; "bf16" off CUDA."""
+    else "fp16"; "bf16" off CUDA (XPU and NPU have bf16 everywhere)."""
     if k["PRECISION"] != "auto":
         return k["PRECISION"]
     if default_device_type() == "cuda":

@@ -16,6 +16,7 @@ from kohakumoss.training.build.parallel import (
     fsdp_hooks,
     pipeline_hooks,
     torch_ddp_hooks,
+    tp_hooks,
 )
 from kohakumoss.training.build.pipelines import (
     build_engine,
@@ -32,6 +33,8 @@ from kohakumoss.training.checks.parallel import (
     pipeline_plan_problems,
     threaded_plan_problems,
     threaded_problems,
+    tp_plan_problems,
+    tp_problems,
 )
 from kohakumoss.training.context import RunContext
 from kohakumoss.training.drivers import NativeDriver, Parts
@@ -100,6 +103,27 @@ def _plain_parts(ctx: RunContext, args: tuple, names, extra) -> Parts:
 
 def _fsdp_parts(ctx: RunContext, args: tuple, names, extra) -> Parts:
     return FsdpParts(*args, model=ctx.built.backbone, extra=extra)
+
+
+def _tp_stages(ctx: RunContext, prec) -> tuple:
+    """Tensor parallel: the projection split (and the adapters cut with it) is already
+    done in `build_model`, before the prewarm and its weightless twin; nothing to build
+    here."""
+    return None, None, None, None
+
+
+def _tp_hooks(ctx: RunContext) -> ParallelHooks:
+    plan = getattr(ctx.built.backbone, "_tp_plan", None)
+    if plan is None:
+        raise SystemExit("PARALLEL='tp': the backbone has no TP plan")
+    return tp_hooks(plan, ctx.built.trainable)
+
+
+def _tp_parts(ctx: RunContext, args: tuple, names, extra) -> Parts:
+    from kohakumoss.training.drivers.tp import TpParts
+
+    plan = getattr(ctx.built.backbone, "_tp_plan", None)
+    return TpParts(*args, plan=plan, model=ctx.built.backbone, extra=extra)
 
 
 def _pipeline_parts(ctx: RunContext, args: tuple, names, extra) -> Parts:
@@ -215,6 +239,16 @@ for layout in (
         driver=_threaded_driver,
         pipelined=True,
         stage_rng=True,
+    ),
+    Layout(
+        "tp",
+        spawns=True,
+        hooks=_tp_hooks,
+        problems=tp_problems,
+        plan_problems=tp_plan_problems,
+        parts=_tp_parts,
+        stages=_tp_stages,
+        shared_data=True,
     ),
 ):
     LAYOUTS.add(layout.name, layout)

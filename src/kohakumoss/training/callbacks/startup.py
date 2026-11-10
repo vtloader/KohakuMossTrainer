@@ -43,7 +43,7 @@ def _graphs() -> int:
 
 def _segments(device: torch.device) -> int:
     """Allocator segments (driver allocations) made on `device` so far."""
-    if device.type not in ("cuda", "xpu"):
+    if device.type not in ("cuda", "xpu", "npu"):
         return 0
     stats = torch.get_device_module(device).memory_stats(device)
     return int(stats.get("segment.all.allocated", 0))

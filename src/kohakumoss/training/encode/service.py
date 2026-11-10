@@ -1,5 +1,5 @@
 """The encoder process: the text encoder and the VAE on one encoder card, in a process
-of their own (own CUDA context, kernel registry and tuner). Every encoder process
+of their own (own accelerator context, kernel registry and tuner). Every encoder process
 takes chunks from the feed's one request queue, encodes each chunk in one text-encoder
 call and one VAE call, and answers on the feed's result queue. See
 docs/internals/encode-feed.md."""
@@ -167,7 +167,7 @@ def serve(spec: dict, requests, results) -> None:
         configure_allocator(device)
         compile_setup.apply()
         set_tune_mode(spec["knobs"].get("TUNE") or "table")
-        torch.cuda.set_device(device)
+        torch.get_device_module(device).set_device(device)
         te, vae = _build(spec)
         results.put((READY, _ready(te, spec)))
         log.info(f"encoder process on {hl(spec['device'])} ready")

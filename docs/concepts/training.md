@@ -315,8 +315,7 @@ within 1e-6 absolute (3e-4 relative) of the fp64 table.
 | `adamw16` | AdamW for 16-bit parameters: fp32 math, 16-bit states, `sqrt(v)` stored so the second moment does not underflow in fp16; `OPTIMIZER_KWARGS={"rounding": "nearest" \| "stochastic" \| "kahan"}` (stochastic is bf16-only) |
 | `adamw8bit` | bitsandbytes 8-bit AdamW, extra `quant` |
 | `adamw8bit_kernel` | KohakuMoss's own 8-bit AdamW: m (int8) and sqrt(v) (uint8) in blockwise states, stepped by the kernel library's `adamw8bit_step` (Triton / TileLang / eager, chosen per device); `OPTIMIZER_KWARGS={"rounding": ...}` as `adamw16` |
-| `muon` | Muon on 2-D hidden matrices (fused `qkv` split in 3, `ffn_up_gate` in 2, each chunk orthogonalised by 5 Newton–Schulz steps, update scaled by 0.2·√max(rows, cols) to match AdamW's RMS) and AdamW on the rest, in one optimiser |
-| `prodigy`, `schedule_free` | prodigyopt / schedulefree, extra `optim` (schedule-free switches to eval weights for sampling and validation) |
+| `muon` | Muon on 2-D hidden matrices (fused `qkv` split in 3, `ffn_up_gate` in 2, each chunk orthogonalised by 5 Newton–Schulz steps, update scaled by 0.2·√max(rows, cols) to match AdamW's RMS) and AdamW on the rest, in one optimiser || `prodigy`, `schedule_free` | prodigyopt / schedulefree, extra `optim` (schedule-free switches to eval weights for sampling and validation) |
 
 - **`OPTIMIZER` vs `OPTIM_STATE`.** `OPTIMIZER` names the algorithm and its
   implementation; `OPTIM_STATE` (`gpu`, `stream`, `cpu`) only places `adamw`'s states
@@ -455,6 +454,16 @@ gradient never exists at once, so:
   rejects `OPTIMIZER='muon'` with a `fused_step` plan (`kohakumoss.training.knobs`):
   full finetune with Muon uses a profile without `optfused` / stream (e.g.
   `ckpt-resident`), or `FUSED_STEP=False` with `MEMORY_PROFILE='manual'`.
+- **Muon placement.** Muon needs the whole matrix on one rank, so knob validation also
+  rejects it under `PARALLEL='fsdp'` (DTensor shards) and `PARALLEL='tp'` (the
+  orthogonal factor of a slice is not the slice of the whole matrix: a column split
+  differs from the full one by ~80%). `ddp` / `none` / `threaded` are fine.
+- **Devices.** Muon runs unchanged on CUDA, XPU and Ascend NPU: the Newton–Schulz
+  iteration is elementwise math plus matmuls in bf16, and `newton_schulz` gives the
+  same orthogonal factor on the host and every accelerator (the device's matmul
+  rounding differs, so a 5-step result drifts from the fp64 reference by ~4% — the
+  algorithm's own approximation, identical on every backend). `step_masked` (the
+  non-finite skip) leaves the parameter and its momentum untouched, the same on NPU.
 - **DDP.** Each parameter steps on its gradient summed across ranks (see
   [multi-gpu.md](../guides/multi-gpu.md)).
 - **Non-finite parameters.** A parameter whose gradient is non-finite is not updated

@@ -52,7 +52,7 @@ def estimated(backbone, plan: MemoryPlan, tokens: int, place, pixels: int):
 
 def accelerator(device: torch.device):
     """The torch.cuda / torch.xpu module of `device`, None on the host."""
-    if device.type not in ("cuda", "xpu"):
+    if device.type not in ("cuda", "xpu", "npu"):
         return None
     mod = torch.get_device_module(device)
     return mod if mod.is_available() else None

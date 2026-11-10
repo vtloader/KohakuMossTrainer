@@ -37,20 +37,46 @@ def load_pt(file: Path):
         return torch.load(file, map_location="cpu", weights_only=True)
 
 
-def _cuda_indices(devices) -> list[int]:
-    return [d.index for d in devices if d.type == "cuda" and d.index is not None]
+def _accel_indices(devices) -> list[int]:
+    """Indices of the accelerator devices among `devices` (one device type)."""
+    return [
+        d.index
+        for d in devices
+        if d.type in ("cuda", "xpu", "npu") and d.index is not None
+    ]
+
+
+def _rng_kind(devices) -> str:
+    """The device type whose RNG state `devices` carry (cuda when none)."""
+    return next(
+        (d.type for d in devices if d.type in ("cuda", "xpu", "npu")), "cuda"
+    )
 
 
 def capture_rng(step_rng: dict, devices=()) -> dict:
-    """This process's RNG: global torch / numpy / python, the CUDA state of each of
-    `devices` (by index), and the step generators."""
-    return {
+    """This process's RNG: global torch / numpy / python, the accelerator state of each
+    of `devices` (by index; `xpu` / `npu` entries under their own key), and the step
+    generators."""
+    modules = {
+        kind: torch.get_device_module(kind)
+        for kind in ("cuda", "xpu", "npu")
+        if getattr(torch, kind, None) is not None
+    }
+    state = {
         "torch": torch.get_rng_state(),
         "python": random.getstate(),
         "numpy": np.random.get_state(),
-        "cuda": {i: torch.cuda.get_rng_state(i) for i in _cuda_indices(devices)},
+        "cuda": {
+            i: torch.cuda.get_rng_state(i)
+            for i in _accel_indices([d for d in devices if d.type == "cuda"])
+        },
         "step": step_rng,
     }
+    for kind in ("xpu", "npu"):
+        idx = _accel_indices([d for d in devices if d.type == kind])
+        if kind in modules and idx:
+            state[kind] = {i: modules[kind].get_rng_state(i) for i in idx}
+    return state
 
 
 def restore_rng(state: dict, devices=()) -> dict:
@@ -60,9 +86,17 @@ def restore_rng(state: dict, devices=()) -> dict:
     random.setstate(state["python"])
     np.random.set_state(state["numpy"])
     saved = state.get("cuda", {})
-    for i in _cuda_indices(devices):
+    for i in _accel_indices([d for d in devices if d.type == "cuda"]):
         if i in saved:
             torch.cuda.set_rng_state(saved[i], i)
+    for kind in ("xpu", "npu"):
+        saved = state.get(kind, {})
+        mod = getattr(torch, kind, None)
+        if mod is None:
+            continue
+        for i in _accel_indices([d for d in devices if d.type == kind]):
+            if i in saved:
+                mod.set_rng_state(saved[i], i)
     return state["step"]
 
 

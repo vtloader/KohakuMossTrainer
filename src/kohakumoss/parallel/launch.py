@@ -23,6 +23,7 @@ import torch.multiprocessing as mp
 from kohakumoss.types.plans import ParallelPlan
 from kohakumoss_kernels.dist import COLLECTIVE_DEVICE, grouped
 from kohakumoss_kernels.dist import dist_rank as dist_rank
+from kohakumoss_kernels.hardware.current import module_of
 
 IS_WINDOWS = sys.platform == "win32"
 TIMEOUT_S = 600.0  # default DIST_TIMEOUT: seconds a collective / the store waits
@@ -50,24 +51,23 @@ class DistEnv:
 
 
 def default_backend(device_type: str = "cuda") -> str:
-    """nccl on Linux CUDA, gloo on Windows / CPU, xccl on XPU when available."""
+    """nccl on Linux CUDA, hccl on NPU, gloo on Windows / CPU, xccl on XPU when
+    available."""
     if device_type == "cuda" and not IS_WINDOWS and dist.is_nccl_available():
         return "nccl"
     if device_type == "xpu" and dist.is_backend_available("xccl"):
         return "xccl"
+    if device_type == "npu" and dist.is_backend_available("hccl"):
+        return "hccl"
     return "gloo"
 
 
 def _device(device_type: str, index: int) -> torch.device:
-    match device_type:
-        case "cuda":
-            torch.cuda.set_device(index)
-            return torch.device("cuda", index)
-        case "xpu":
-            torch.xpu.set_device(index)
-            return torch.device("xpu", index)
-        case _:
-            return torch.device("cpu")
+    mod = module_of(device_type)
+    if mod is None:
+        return torch.device("cpu")
+    mod.set_device(index)
+    return torch.device(device_type, index)
 
 
 def init(
@@ -110,8 +110,8 @@ def bound_device(
     backend: str, device: torch.device, kind: str = "ddp", bind: str = "lazy"
 ) -> dict:
     """`{"device_id": device}` with DIST_BIND='device' for a device backend (nccl /
-    xccl) on its accelerator outside the pipeline; else nothing (lazy init). See
-    docs/internals/distributed-launch.md."""
+    xccl / hccl) on its accelerator outside the pipeline; else nothing (lazy init).
+    See docs/internals/distributed-launch.md."""
     if bind not in BINDS:
         raise ValueError(f"DIST_BIND={bind!r} not in {BINDS}")
     device_backend = backend in DEVICE_BACKENDS and device.type != "cpu"

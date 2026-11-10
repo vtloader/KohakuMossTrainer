@@ -39,16 +39,18 @@ powershell -ExecutionPolicy Bypass -File scripts\install\install.ps1    # Window
 
 The helper:
 
-1. detects the GPU and driver (`nvidia-smi`'s CUDA version; an Intel Arc adapter) and
-   stops with a message when it cannot read the CUDA version from `nvidia-smi`;
+1. detects the GPU and driver (`nvidia-smi`'s CUDA version; an Intel Arc adapter; an
+   Ascend install under `/usr/local/Ascend` / `npu-smi`) and stops with a message when
+   it cannot read the CUDA version from `nvidia-smi`;
 2. picks the index: driver CUDA >= 13.0: cu130, >= 12.8: cu128, >= 12.6: cu126; Intel:
-   xpu; neither: cpu;
+   xpu; Ascend: cpu (torch) plus `torch_npu`; neither: cpu;
 3. makes a Python 3.12 venv `.venv`: with uv, `uv venv -p 3.12`; without it,
    `python -m venv` + pip, where Linux takes `python3.12` when installed (else
    `python3`) and Windows the `py` launcher of a python.org install (`python` alone may
    be the Microsoft Store alias);
-4. installs `torch>=2.13,<2.15` from the index (`KM_TORCH` overrides the torch
-   requirement);
+4. installs `torch>=2.10,<2.15` from the index (`KM_TORCH` overrides the torch
+   requirement); on Ascend `torch==2.10.0` (`KM_NPU_TORCH`) and `torch_npu==2.10.0`
+   (`KM_TORCH_NPU`), the pair torch_npu pins;
 5. installs KohakuMoss (editable when run from a clone, `kohakumoss` from PyPI
    otherwise) and runs the doctor.
 
@@ -78,8 +80,8 @@ that index as an extra index so the torch build stays:
 
 ```bash
 uv venv -p 3.12
-uv pip install "torch>=2.13,<2.15" torchvision --index-url https://download.pytorch.org/whl/cu130
-uv pip install "kohakumoss[cuda]" "torch>=2.13,<2.15" --extra-index-url https://download.pytorch.org/whl/cu130 --index-strategy unsafe-best-match
+uv pip install "torch>=2.10,<2.15" torchvision --index-url https://download.pytorch.org/whl/cu130
+uv pip install "kohakumoss[cuda]" "torch>=2.10,<2.15" --extra-index-url https://download.pytorch.org/whl/cu130 --index-strategy unsafe-best-match
 ```
 
 - From a clone, replace `"kohakumoss[cuda]"` with `-e ".[cuda]"`.
@@ -127,12 +129,31 @@ matrix. Multi-GPU training is Linux-only.
 | Linux, CUDA | ships with the torch wheel | `tilelang` (extra `kernels-cuda`); JIT needs `nvcc` |
 | Windows, CUDA | `triton-windows` (extra `kernels-cuda`) | `tilelang`; JIT needs MSVC `cl.exe`, the Windows SDK and `nvcc` |
 | Intel Arc | `pytorch-triton-xpu`, from the XPU torch index with torch | - |
+| Ascend NPU | `triton-ascend` (optional; no kernel backend uses it yet) | - |
 
 - `triton-windows` 3.7 pairs with torch 2.13 and 3.8 with torch 2.14; the extra pins
-  `>=3.7,<3.9` and the package pins `torch>=2.13,<2.15` to keep the pair (the helpers
+  `>=3.7,<3.9` and the package pins `torch>=2.10,<2.15` to keep the pair (the helpers
   and the commands here repeat that pin; `tests/rules/test_torch_pin.py` keeps them
   equal).
 - The `xpu` extra uses `kernels-xpu` (empty: Intel's Triton comes with torch).
+- The `npu` extra uses `kernels-npu` (`torch-npu`): on Ascend the eager ops are the
+  backend, `compile` binds only where torchair compiles (the `npu` graph backend), so
+  a host without torchair runs eager.
+
+## Ascend NPU
+
+```bash
+# torch 2.10.0 + torch_npu 2.10.0 (CANN must already be installed: /usr/local/Ascend)
+pip install "torch==2.10.0" "torch_npu==2.10.0"
+pip install -e ".[npu]"
+```
+
+- Devices are `npu:N`; `DEVICES=(0, 1)` and every accelerator path (pinned transfers,
+  side streams, the fused step, activation / weight offload) run on NPU.
+- The NCCL backend is `hccl`; `DIST_BACKEND="auto"` picks it.
+- Precision: bf16 by default (Ascend has it); fp8 / MXFP8 compute and the int8 GEMMs
+  need CUDA, so `BASE_PRECISION` / `TEXT_ENCODE` `precision` stay `compute` / `auto`.
+- Multi-NPU is Linux-only, as multi-GPU is.
 
 ## Where caches go
 
@@ -160,14 +181,17 @@ shared drive):
 | --- | --- | --- |
 | `cuda` | `kernels-cuda` + `quant` | the default set on NVIDIA GPUs |
 | `xpu` | `kernels-xpu` + `quant` | the default set on Intel Arc |
+| `npu` | `kernels-npu` (`torch-npu`) | the default set on Ascend NPU |
 | `kernels-cuda` (`kernels`) | `tilelang`, `triton-windows` (Windows) | TileLang kernels (sm70 / sm75), Triton on Windows |
 | `kernels-xpu` | none | Intel's Triton comes with the XPU torch |
+| `kernels-npu` | `torch-npu` | the Ascend device bridge (torch itself comes from the NPU install) |
 | `quant` | `bitsandbytes` | `OPTIMIZER="adamw8bit"` (bitsandbytes 8-bit AdamW) |
 | `optim` | `prodigyopt`, `schedulefree` | `OPTIMIZER="prodigy"` / `"schedule_free"` |
 | `parquet` | `pyarrow` | the `parquet` dataset source |
 | `wandb` | `wandb` | `LOGGER="wandb"` |
 | `dev` | pytest, ruff, black, lpips + `bench` | tests and lint (the script tests import every script) |
 | `bench` | matplotlib, pandas | benches, the fp16-fix charts |
+| `webui` | `gradio` | the `kohakumoss-webui` page ([webui.md](webui.md)) |
 | `baselines` | flash-linear-attention, causal-conv1d | comparison benches only |
 
 The real-GPU bench matrix (`scripts/bench/matrix/`,

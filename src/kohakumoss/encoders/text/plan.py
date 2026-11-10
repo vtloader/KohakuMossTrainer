@@ -68,9 +68,12 @@ def resolve_precision(
 
 def _has_bf16(device: torch.device | str) -> bool:
     device = torch.device(device)
-    if device.type != "cuda" or not torch.cuda.is_available():
-        return True
-    return arch_of(device).has_bf16
+    if device.type == "cuda":
+        if not torch.cuda.is_available():
+            return True
+        return arch_of(device).has_bf16
+    # XPU and NPU run bf16; so does a CUDA build this process cannot query.
+    return True
 
 
 def resolve_dtype(
@@ -154,8 +157,11 @@ def plan_problems(
     if plan.precision in COMPUTE and plan.memory != "cpu" and device is not None:
         kind = torch.device(device).type
         if kind != "cuda":
-            p.append(f"text-encoder {plan.precision} needs a CUDA device, not {kind}")
-    if device is not None and torch.device(device).type == "cuda":
+            p.append(
+                f"text-encoder {plan.precision} needs a CUDA device (fp8 GEMMs), "
+                f"not {kind}"
+            )
+    if device is not None and torch.device(device).type in ("cuda", "npu"):
         info = arch(device)
         if plan.precision in COMPUTE and not info.has_fp8:
             p.append(

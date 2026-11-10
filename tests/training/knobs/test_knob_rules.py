@@ -87,6 +87,16 @@ def test_muon_with_fsdp(linux):
     )
 
 
+def test_muon_with_tp(linux):
+    """Muon orthogonalises a whole matrix; a TP rank holds a slice of it."""
+    k = runnable(OPTIMIZER="muon", PARALLEL="tp", DEVICES=(0, 1))
+    _has(validate(k), "OPTIMIZER='muon'")
+    assert not any(
+        "OPTIMIZER='muon'" in p
+        for p in validate(runnable(PARALLEL="tp", DEVICES=(0, 1)))
+    )
+
+
 def test_threaded_schedule_is_checked(linux):
     base = dict(PARALLEL="threaded", DEVICES=(0, 1))
     _has(validate(runnable(**base, PIPELINE_SCHEDULE="1f1b")), "PIPELINE_SCHEDULE")

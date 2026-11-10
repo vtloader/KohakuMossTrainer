@@ -31,6 +31,7 @@ EXPECTED = {
     "fsdp": (True, False, False),
     "pipeline": (True, True, False),
     "threaded": (False, True, True),
+    "tp": (True, False, False),
 }
 
 

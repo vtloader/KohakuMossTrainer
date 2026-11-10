@@ -10,7 +10,7 @@ from kohakumoss_kernels.hardware.arch import arch_of
 
 @dataclass(frozen=True)
 class Accelerator:
-    kind: str  # "cuda" | "xpu" | "cpu"
+    kind: str  # "cuda" | "xpu" | "npu" | "cpu"
     vram_gib: float  # device 0, exact (presets.holds applies the tolerance)
     bf16: bool
     count: int
@@ -28,5 +28,13 @@ def detect() -> Accelerator:
         props = torch.xpu.get_device_properties(0)
         return Accelerator(
             "xpu", gib(props.total_memory), True, torch.xpu.device_count()
+        )
+    if hasattr(torch, "npu") and torch.npu.is_available():
+        props = torch.npu.get_device_properties(0)
+        return Accelerator(
+            "npu",
+            gib(props.total_memory),
+            arch_of("npu:0").has_bf16,
+            torch.npu.device_count(),
         )
     return Accelerator("cpu", 0.0, False, 0)

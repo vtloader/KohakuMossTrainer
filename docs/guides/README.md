@@ -4,7 +4,8 @@ In the order a first run follows them:
 
 | page | content |
 | --- | --- |
-| [install.md](install.md) | one install command per platform (Linux, Windows, Intel Arc, Google Colab), extras, the doctor |
+| [install.md](install.md) | one install command per platform (Linux, Windows, Intel Arc, Ascend NPU, Google Colab), extras, the doctor |
+| [webui.md](webui.md) | the Gradio page: generate, and optionally launch training |
 | [install-windows.md](install-windows.md) | Windows toolchain, feature matrix |
 | [weights.md](weights.md) | where each weight file goes: the ComfyUI layout (int8 / W4A8 / bf16 files, the component knobs), the HF layout, the quantized formats |
 | [first-lora.md](first-lora.md) | train a first LoRA / LyCORIS adapter, end to end |

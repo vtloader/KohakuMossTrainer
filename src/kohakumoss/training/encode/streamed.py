@@ -117,4 +117,4 @@ class StreamedLoader:
 
 def pin_batches(device: torch.device, pin_memory: bool) -> bool:
     """Whether streamed batches are pinned on arrival (a CUDA / XPU consumer)."""
-    return pin_memory and device.type in ("cuda", "xpu")
+    return pin_memory and device.type in ("cuda", "xpu", "npu")

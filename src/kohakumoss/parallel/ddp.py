@@ -538,7 +538,7 @@ def wrap_torch_ddp(
     """Stock torch DDP over `model` (DDP_BACKEND='torch', the A / B baseline): no
     buffer broadcast per forward, gradients a SUM over ranks in `reduce_dtype` (None:
     the bucket's dtype), as the project's reducers sum."""
-    ids = [device.index] if device.type == "cuda" else None
+    ids = [device.index] if device.type in ("cuda", "xpu", "npu") else None
     ddp = DistributedDataParallel(
         model, device_ids=ids, broadcast_buffers=False, process_group=group, **kwargs
     )

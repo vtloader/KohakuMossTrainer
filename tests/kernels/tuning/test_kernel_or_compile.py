@@ -19,6 +19,15 @@ TEST = "kernel_or_compile"
 
 
 @pytest.fixture
+def needs_compile(device):
+    """The compile path must build on `device` (inductor needs triton; the Ascend
+    build has neither here), else these comparisons have no second candidate."""
+    why = registry.available("situ_glu", device, torch.float16).get("compile")
+    if why is not None:
+        pytest.skip(f"the compile backend cannot run on {device}: {why}")
+
+
+@pytest.fixture
 def fresh(tmp_path, monkeypatch):
     monkeypatch.setenv("KOHAKUMOSS_KERNEL_CACHE", str(tmp_path))
     mode = tuner.get_mode()
@@ -39,7 +48,7 @@ def _slow_kernel(x):
 
 
 @pytest.mark.gpu
-def test_call_never_times_and_retune_binds_winner(device, fresh):
+def test_call_never_times_and_retune_binds_winner(device, fresh, needs_compile):
     tuner.set_mode("table")
     op = choice.kernel_or_compile("test", "situ_glu", _slow_kernel, choice.shape_key)
     x = torch.randn(2048, 8192, device=device)
@@ -55,7 +64,7 @@ def test_call_never_times_and_retune_binds_winner(device, fresh):
 
 @pytest.mark.gpu
 @pytest.mark.parametrize("ctx", ["inference", "checkpoint"])
-def test_retune_inside_untimed_context_stays_queued(device, fresh, ctx):
+def test_retune_inside_untimed_context_stays_queued(device, fresh, ctx, needs_compile):
     """A retune reached under inference mode or inside a checkpointed forward times
     nothing and binds nothing; the next retune outside binds the measured winner."""
     tuner.set_mode("table")
@@ -122,7 +131,7 @@ EAGER = {
 
 
 @pytest.mark.gpu
-def test_checkpointed_block_on_fresh_cache(device, fresh):
+def test_checkpointed_block_on_fresh_cache(device, fresh, needs_compile):
     """Default kernels inside non-reentrant checkpointing, first step on a fresh cache."""
     dtype = torch.float16
     ops = {name: _registered(name, device, dtype) for name in EAGER}
@@ -224,7 +233,7 @@ def _check_graphs(graphs: dict[str, int]) -> None:
 
 
 @pytest.mark.gpu
-def test_compile_path_checkpointed_across_shapes(device, fresh):
+def test_compile_path_checkpointed_across_shapes(device, fresh, needs_compile):
     """Registered compile path (dynamic=True) inside block checkpointing, token count
     changing every step and across micro-batches whose recomputes run after later
     shapes: no checkpoint mismatch, eager grads, and no recompile on a new length."""
@@ -232,7 +241,7 @@ def test_compile_path_checkpointed_across_shapes(device, fresh):
 
 
 @pytest.mark.gpu
-def test_compile_path_automatic_dynamic_is_caught(device, fresh):
+def test_compile_path_automatic_dynamic_is_caught(device, fresh, needs_compile):
     """`dynamic=None` (static first trace, dynamic recompile on the next length) is
     what lets a recompute meet a different graph than its forward; the graph check
     above must reject it."""
@@ -242,7 +251,7 @@ def test_compile_path_automatic_dynamic_is_caught(device, fresh):
 
 @pytest.mark.gpu
 @pytest.mark.budget(20)
-def test_prewarm_binds_every_op(device, fresh):
+def test_prewarm_binds_every_op(device, fresh, needs_compile):
     tuner.set_mode("table")
     ops = {name: _registered(name, device, torch.float16) for name in EAGER}
     measured = prewarm_block_ops(

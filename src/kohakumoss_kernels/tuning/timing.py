@@ -78,9 +78,11 @@ def burst_ms(
 ) -> float:
     """Best-of-`iters` device ms per call of `calls` back-to-back calls, issued while
     the device spins so that all of them are queued before the first starts: the host's
-    launch time is not counted (plain event timing off CUDA)."""
-    if device.type != "cuda":
+    launch time is not counted (plain event timing off CUDA, or where the build has no
+    `_sleep`)."""
+    if device.type != "cuda" or getattr(torch.cuda, "_sleep", None) is None:
         return best_ms(fn, device, iters)
+
     warm(fn, device)
     began = time.perf_counter()
     for _ in range(calls):
@@ -132,16 +134,17 @@ def l2_flush(device: torch.device, l2_bytes: int) -> torch.Tensor:
 def graph_ms(
     fn: Callable[[], object], device: torch.device, calls: int = 5, iters: int = 10
 ) -> float:
-    """Device ms per call replayed from a thread-local CUDA graph of `calls` launches
-    (device time only), freed after the measurement; plain timing when capture fails
-    or off CUDA."""
+    """Device ms per call replayed from a thread-local CUDA / NPU graph of `calls`
+    launches (device time only), freed after the measurement; plain timing when
+    capture fails or off those devices."""
     fn()
     synchronize(device)
-    if device.type != "cuda":
+    graph_cls = _graph_class(device)
+    if graph_cls is None:
         return best_ms(fn, device, iters)
-    graph = torch.cuda.CUDAGraph()
+    graph = graph_cls()
     try:
-        with on_device(device), torch.cuda.graph(graph, capture_error_mode=CAPTURE):
+        with on_device(device), _graph_capture(device, graph):
             for _ in range(calls):
                 fn()
     except RuntimeError:
@@ -153,3 +156,20 @@ def graph_ms(
     finally:
         synchronize(device)
         graph.reset()
+
+
+def _graph_class(device: torch.device):
+    """`torch.cuda.CUDAGraph` / `torch.npu.NPUGraph` of `device`, None elsewhere."""
+    mod = getattr(torch, device.type, None)
+    if device.type == "cuda":
+        return getattr(torch.cuda, "CUDAGraph", None)
+    if device.type == "npu":
+        return getattr(mod, "NPUGraph", None)
+    return None
+
+
+def _graph_capture(device: torch.device, graph):
+    """`torch.cuda.graph` / `torch.npu.graph` context of `device`."""
+    mod = torch.get_device_module(device)
+    return mod.graph(graph, capture_error_mode=CAPTURE)
+

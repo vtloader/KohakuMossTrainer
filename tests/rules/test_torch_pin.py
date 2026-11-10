@@ -72,10 +72,10 @@ def _tree(root: Path, pin: str, repeat: str) -> Path:
 
 
 def test_check_sees_a_drifted_repeat(tmp_path):
-    good = _tree(tmp_path / "good", "torch>=2.13,<2.15", "torch>=2.13,<2.15")
+    good = _tree(tmp_path / "good", "torch>=2.10,<2.15", "torch>=2.10,<2.15")
     assert_none(mismatches(good))
     assert_bounded(good)
-    drift = _tree(tmp_path / "drift", "torch>=2.13,<2.15", "torch>=2.13,<2.16")
+    drift = _tree(tmp_path / "drift", "torch>=2.10,<2.15", "torch>=2.13,<2.16")
     must_fail(lambda: assert_none(mismatches(drift)), "a helper pinning another torch")
     unbounded = _tree(tmp_path / "unbounded", "torch>=2.13", "torch>=2.13")
     must_fail(lambda: assert_bounded(unbounded), "a pin without an upper bound")

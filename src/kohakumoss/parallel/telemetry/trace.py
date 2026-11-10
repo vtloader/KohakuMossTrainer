@@ -52,6 +52,10 @@ class StepTrace:
         activities = [ProfilerActivity.CPU]
         if self.device.type == "cuda":
             activities.append(ProfilerActivity.CUDA)
+        elif self.device.type == "xpu":
+            activities.append(ProfilerActivity.XPU)
+        elif self.device.type == "npu":
+            activities.append(ProfilerActivity.PrivateUse1)
         self.prof = profile(activities=activities, record_shapes=False)
         for device in (self.device, *self.extra):
             synchronize(device)
@@ -108,7 +112,6 @@ class ProfilerWindow:
             torch.cuda.profiler.stop()
             return True
         return False
-
 
 def _index(device: torch.device) -> int:
     return device.index if device.index is not None else 0

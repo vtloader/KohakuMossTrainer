@@ -6,6 +6,7 @@ from functools import partial
 import torch
 
 from kohakumoss.model.opset import OpSet
+from kohakumoss.offload.accel import release_cache
 from kohakumoss.parallel.pipeline.distributed import (
     PipelineEngine,
     PipeShape,
@@ -84,9 +85,9 @@ def build_engine(k: dict, built, prec, rank: int, world: int, device):
     return engine, objective
 
 
-def release_nonlocal(backbone, keep: set[int]) -> None:
+def release_nonlocal(backbone, keep: set[int], device="cpu") -> None:
     """Move every block and top-level module with no parameter in `keep` (this rank's
-    stages) to host memory."""
+    stages) to host memory; the accelerator's free blocks go back to the driver."""
     modules = list(backbone.layers) + [
         m for m in backbone.children() if m is not backbone.layers
     ]
@@ -94,8 +95,7 @@ def release_nonlocal(backbone, keep: set[int]) -> None:
         params = list(module.parameters())
         if params and not any(id(p) in keep for p in params):
             module.to("cpu")
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
+    release_cache(device)
 
 
 def local_names(trainable, engine) -> set[str]:

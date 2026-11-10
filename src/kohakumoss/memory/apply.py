@@ -122,7 +122,7 @@ def _node_share(trainable: bool, n_blocks: int, device, plan: MemoryPlan) -> dic
     the block owners of the host optimiser shards; none otherwise."""
     if not (trainable and grouped()):
         return {}
-    pin = plan.pinned and torch.device(device).type == "cuda"
+    pin = plan.pinned and torch.device(device).type in ("cuda", "xpu", "npu")
     rank, world = dist_rank()
     return {
         "share": partial(SharedHost, pin=pin),

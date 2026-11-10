@@ -100,6 +100,11 @@ def run_shapes(k: dict, prec, plan, device: torch.device, real=None) -> nn.Modul
     )
     _place_caches(twin, device, prec.compute)
     rebind_quant(twin, device, prec.compute, autograd=True)
+    if k.get("PARALLEL") == "tp":
+        # the twin records the shards' shapes, not the full weights'
+        from kohakumoss.parallel.tp_shard import shard as shard_tp
+
+        twin._tp_plan = shard_tp(twin)
     if real is not None:
         mirror(twin, real, device)
     return twin

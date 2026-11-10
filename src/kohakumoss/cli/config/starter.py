@@ -123,7 +123,6 @@ def peer_linked(gpus: int, cuda=torch.cuda) -> bool:
         if i != j
     )
 
-
 def fsdp_fits(root: Path, layers: list[Path], c: TrainChoice) -> bool:
     """The full finetune's per-rank FSDP2 footprint (the fsdp layer's profile, every
     parameter, gradient and optimizer state sharded over `c.gpus`; the memory

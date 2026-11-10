@@ -14,8 +14,9 @@ def working(t: Tensor, dtype: torch.dtype) -> Tensor:
 
 
 def working_copy(t: Tensor, dtype: torch.dtype) -> Tensor:
-    """A new copy of `t` in `dtype`."""
-    return t.to(dtype, copy=True)
+    """A new copy of `t` in `dtype` (never `t` itself, even where the device's `to`
+    returns the same tensor for a same-dtype cast; Ascend NPU does)."""
+    return t.to(dtype).clone()
 
 
 def store(dst: Tensor, new: Tensor) -> None:

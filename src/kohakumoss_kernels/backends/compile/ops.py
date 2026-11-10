@@ -202,18 +202,26 @@ class CompiledOp:
 
     def _compile(self, key: tuple) -> Callable:
         """The compiled callable of call pattern `key` (a fresh code object), under
-        this package's compile settings (`compile_setup`)."""
+        this package's compile settings (`compile_setup`). On an NPU the `npu` graph
+        backend (torchair) is used in place of inductor."""
         compile_setup.apply()
         _raise_dynamo_limits()
         fresh = _fresh(self.eager, f"pattern{len(self.compiled)}")
+        backend = "npu" if _npu_key(key) else self.backend
         fn = torch.compile(
             fresh,
             dynamic=self.dynamic,
-            backend=_counting(self.backend, self.__name__, key),
+            backend=_counting(backend, self.__name__, key),
         )
         self.functions[key] = fresh
         self.compiled[key] = fn
         return fn
+
+
+def _npu_key(key: tuple) -> bool:
+    """The call pattern's device is an NPU."""
+    device = key[0] if key else None
+    return isinstance(device, torch.device) and device.type == "npu"
 
 
 @cache

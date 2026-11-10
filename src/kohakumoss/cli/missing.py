@@ -1,6 +1,6 @@
 """What the install lacks for this machine's accelerator, each with the command that fixes
 it. Requirements come from the installed kohakumoss metadata (base, then the default
-extra of the accelerator kind: `cuda` or `xpu`). See docs/guides/install.md."""
+extra of the accelerator kind: `cuda`, `xpu` or `npu`). See docs/guides/install.md."""
 
 import glob
 import importlib.metadata as metadata
@@ -14,15 +14,19 @@ from packaging.requirements import Requirement
 PACKAGE = "kohakumoss"
 INDEX = "https://download.pytorch.org/whl/{tag}"
 INSTALL = (
-    'uv pip install -e "{spec}" "torch>=2.13,<2.15" --extra-index-url '
+    'uv pip install -e "{spec}" "torch>=2.10,<2.15" --extra-index-url '
     + INDEX
     + " --index-strategy unsafe-best-match"
 )
 HELPER = "or run scripts/install/install.sh (Windows: install.ps1)"
 TORCH_FIX = (
-    'uv pip install --reinstall-package torch "torch>=2.13,<2.15" --index-url '
+    'uv pip install --reinstall-package torch "torch>=2.10,<2.15" --index-url '
     "https://download.pytorch.org/whl/cu130 (cu126 / cu128 / cu130 by the driver's "
     f"CUDA version in nvidia-smi), {HELPER}"
+)
+NPU_TORCH_FIX = (
+    'uv pip install "torch==2.10.0" "torch_npu==2.10.0" (CANN 8.x; the pair must match), '
+    "then the Ascend extra"
 )
 MSVC_FIX = (
     "install VS Build Tools 2022 with the C++ workload: winget install "
@@ -42,7 +46,7 @@ NVCC_FIX = (
     "and put its bin/ on PATH or set CUDA_PATH"
 )
 XPU_FIX = (
-    'uv pip install --reinstall-package torch "torch>=2.13,<2.15" --index-url '
+    'uv pip install --reinstall-package torch "torch>=2.10,<2.15" --index-url '
     f"https://download.pytorch.org/whl/xpu, {HELPER}"
 )
 BACKEND_FIXES = (
@@ -60,18 +64,23 @@ BACKEND_FIXES = (
 
 
 def accelerator_kind() -> str:
-    """The accelerator kind torch can use: "cuda" | "xpu", else "cpu"."""
+    """The accelerator kind torch can use: "cuda" | "xpu" | "npu", else "cpu"."""
     if torch.cuda.is_available():
         return "cuda"
     if hasattr(torch, "xpu") and torch.xpu.is_available():
         return "xpu"
+    if hasattr(torch, "npu") and torch.npu.is_available():
+        return "npu"
     return "cpu"
 
 
 def index_tag(kind: str) -> str:
-    """PyTorch wheel index tag of the installed torch build: cuXYZ | xpu | cpu."""
+    """PyTorch wheel index tag of the installed torch build: cuXYZ | xpu | cpu (an NPU
+    torch is a CPU build plus torch_npu: the PyPI index)."""
     if kind == "cuda" and torch.version.cuda:
         return "cu" + torch.version.cuda.replace(".", "")
+    if kind == "npu":
+        return "cpu"
     return kind
 
 
@@ -122,6 +131,21 @@ def _torch_rows() -> list[dict]:
             "(driver older than that CUDA?)"
         )
     return [{"what": what, "fix": TORCH_FIX}]
+
+
+def _npu_rows(kind: str) -> list[dict]:
+    """An Ascend device with no torch_npu, or a torch_npu whose torch version differs."""
+    if kind != "npu":
+        return []
+    rows = []
+    if unmet(Requirement("torch-npu")) is not None:
+        rows.append(
+            {
+                "what": "an Ascend NPU is present but torch-npu is not installed",
+                "fix": NPU_TORCH_FIX,
+            }
+        )
+    return rows
 
 
 def _msvc_rows(msvc: dict, kind: str) -> list[dict]:
@@ -210,7 +234,7 @@ def missing(msvc: dict, probes: dict | None = None) -> list[dict]:
                 rows.append({"what": why, "fix": fix})
     probes = probes or {}
     rows += _torch_rows() + _msvc_rows(msvc, kind) + _toolchain_rows(kind, probes)
-    rows += _xpu_rows(kind)
+    rows += _npu_rows(kind) + _xpu_rows(kind)
     return rows + backend_rows(probes)
 
 

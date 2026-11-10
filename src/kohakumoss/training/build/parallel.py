@@ -18,6 +18,7 @@ from kohakumoss.parallel.ddp import (
     wrap_torch_ddp,
 )
 from kohakumoss.parallel.fsdp import block_units, conditioning_units, shard
+from kohakumoss.parallel.tp import all_reduce_grads, sum_grads
 from kohakumoss.training.drivers import no_accumulate
 from kohakumoss.training.optim.bundle.base import (
     all_reduce_max,
@@ -209,3 +210,106 @@ def pipeline_hooks() -> ParallelHooks:
     """Every rank sees the same data (no count / loss reduction); each holds disjoint
     stage parameters, so the norm and the skip flag are reduced."""
     return ParallelHooks(agree=all_reduce_max, grad_norm=all_reduce_norm)
+
+
+class _TPAccumulate:
+    """TP accumulate context, after the last micro-batch's backward:
+
+    - a cut parameter (`p` is a slice) needs no communication: its gradient is the
+      complete gradient of its slice;
+    - an uncut trainable parameter takes a different slice of the step's output on each
+      rank, so the ranks' gradients SUM to the full one (a column-parallel base's
+      `lora_down`, a row-parallel base's `lora_up`, a full-FT bias);
+    - a replicated module (norms, embedders, conditioning, heads) computed the full
+      gradient on every rank, so its gradients are averaged.
+
+    The cut and summed gradient tensor ids are recorded here, for the norm."""
+
+    def __init__(self, replicated, summed, cut, group=None):
+        self.replicated = replicated
+        self.summed = list(summed)
+        self.cut = list(cut)
+        self.group = group
+        self.cut_ids: frozenset = frozenset()
+
+    def __call__(self, last: bool):
+        if not last:
+            return contextlib.nullcontext()
+
+        self_ = self
+
+        class _OnExit:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                if exc[0] is None:
+                    self_.cut_ids = frozenset(
+                        id(p.grad) for p in self_.cut if p.grad is not None
+                    )
+                    sum_grads(self_.summed, self_.group)
+                    all_reduce_grads(self_.replicated, self_.group)
+                return False
+
+        return _OnExit()
+
+    def cut_grads(self) -> frozenset:
+        """Ids of the cut parameters' gradient tensors (this rank's slices)."""
+        return self.cut_ids
+
+
+def tp_grad_norm(cut_grads: Callable[[], frozenset], world: int):
+    """Global L2 norm under TP:
+
+    - a cut parameter's gradient is this rank's slice: their squared norms sum over
+      the ranks;
+    - an uncut trainable parameter's gradient was SUMed over the ranks already (the
+      full gradient on every rank): counted once, no reduction;
+    - a replicated module's gradient was averaged (the full gradient): counted once.
+
+    `cut_grads()` gives the current cut gradient tensor ids (autograd creates them, so
+    the set is read at norm time)."""
+
+    def norm(grads: list[Tensor]) -> Tensor:
+        if not grads:
+            return torch.zeros((), dtype=torch.float32)
+        dev = grads[0].device
+        ids = cut_grads()
+        cut = [g for g in grads if id(g) in ids]
+        rest = [g for g in grads if id(g) not in ids]
+        sq = local_grad_norm(cut).square().reshape(1).to(dev)
+        if world > 1:
+            torch.distributed.all_reduce(sq, op=torch.distributed.ReduceOp.SUM)
+        return (sq.reshape(()) + local_grad_norm(rest).square().to(dev)).sqrt()
+
+    return norm
+
+
+def tp_hooks(plan, trainable=None) -> ParallelHooks:
+    """Tensor parallel: every rank runs the same tokens (no data / loss / norm
+    reduction). A cut parameter's gradient is complete locally; an uncut trainable
+    parameter's SUMs over the ranks; a replicated module's is averaged. The norm sums
+    the cut part over the ranks, sums the uncut part (it was summed already, so it is
+    one copy), and counts the replicated part once.
+
+    `trainable` is the run's trainable set; None (a shape-only run) sums the plan's cut
+    parameters."""
+    world = dist.get_world_size() if dist.is_initialized() else 1
+    cut = set(id(p) for p in plan.sharded_params())
+    params = list(trainable.trainable_params()) if trainable is not None else []
+    summed = [p for p in params if id(p) not in cut]
+    accumulate = _TPAccumulate(plan.replicated, summed, cut_params(plan, params))
+    return ParallelHooks(
+        reduce=identity,
+        world_factor=1,
+        agree=identity,
+        reduce_loss=identity,
+        grad_norm=tp_grad_norm(accumulate.cut_grads, world),
+        accumulate=accumulate,
+    )
+
+
+def cut_params(plan, params) -> list:
+    """The trainable parameters that are slices of a TP weight."""
+    cut = set(id(p) for p in plan.sharded_params())
+    return [p for p in params if id(p) in cut]

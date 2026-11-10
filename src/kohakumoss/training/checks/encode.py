@@ -8,13 +8,8 @@ from kohakumoss_kernels.hardware.arch import arch_of
 
 
 def _count(kind: str) -> int:
-    match kind:
-        case "cuda":
-            return torch.cuda.device_count() if torch.cuda.is_available() else 0
-        case "xpu":
-            return torch.xpu.device_count() if torch.xpu.is_available() else 0
-        case _:
-            return 0
+    mod = getattr(torch, kind, None)
+    return mod.device_count() if mod is not None and mod.is_available() else 0
 
 
 def _positive_int(k: dict, name: str) -> list[str]:
@@ -44,7 +39,7 @@ def encode_problems(k: dict, arch=arch_of) -> list[str]:
         p.append("TEXT_DEVICE must be '' with ENCODE_DEVICES (the feed places it)")
     kind = default_type()
     if kind == "cpu":
-        return p + ["ENCODE_DEVICES needs CUDA or XPU devices"]
+        return p + ["ENCODE_DEVICES needs an accelerator (CUDA, XPU or NPU)"]
     count = _count(kind)
     missing = [i for i in devices if i >= count]
     if missing:

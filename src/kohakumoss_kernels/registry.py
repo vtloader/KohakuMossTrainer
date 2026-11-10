@@ -39,6 +39,9 @@ DEFAULT_PRIORITY: dict[str, tuple[str, ...]] = {
     "sm100": ("triton", "tilelang", "compile", "eager"),
     "sm120": ("triton", "tilelang", "compile", "eager"),
     "xpu": ("triton", "compile", "eager"),
+    # Ascend: no triton-ascend kernels yet; compile (the npu inductor graph backend)
+    # then the eager reference.
+    "npu": ("compile", "eager"),
     "cpu": ("eager",),
 }
 CAUGHT = (BackendUnavailable, *LAUNCH_ERRORS)

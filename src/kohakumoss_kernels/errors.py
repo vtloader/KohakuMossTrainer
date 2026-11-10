@@ -127,10 +127,10 @@ def is_sticky_error(err: BaseException, device=None) -> bool:
     text = str(err).lower()
     if any(t in text for t in STICKY_TEXT):
         return True
-    if device is None or torch.device(device).type != "cuda":
+    if device is None or torch.device(device).type not in ("cuda", "xpu", "npu"):
         return False
     try:
-        torch.cuda.synchronize(device)
+        torch.get_device_module(torch.device(device)).synchronize(device)
     except RuntimeError:
         return True
     return False

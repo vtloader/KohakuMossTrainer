@@ -86,7 +86,10 @@ def _fp8_device_problems(plan: MemoryPlan, device) -> list[str]:
     kind = torch.device(device).type
     if kind == "cuda":
         return []
-    return [f"base_precision {plan.base_precision!r} needs a CUDA device, not {kind}"]
+    return [
+        f"base_precision {plan.base_precision!r} needs a CUDA device (fp8 GEMMs), "
+        f"not {kind}"
+    ]
 
 
 def resolve_base_precision(value: str, device: torch.device | str) -> str:

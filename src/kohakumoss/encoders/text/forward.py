@@ -16,6 +16,7 @@ from torch import Tensor, nn
 
 from kohakumoss.logging.log import get_logger
 from kohakumoss_common.calls import nothing
+from kohakumoss_common.devices import STREAMED as ACCEL
 from kohakumoss_kernels import registry
 from kohakumoss_kernels.errors import describe
 from kohakumoss_kernels.hardware.current import rng_kept
@@ -47,9 +48,10 @@ class Pack:
 
 
 def to_device(t: Tensor, device) -> Tensor:
-    """`t` on `device` without a stream sync: through pinned memory onto CUDA."""
+    """`t` on `device` without a stream sync: through pinned memory onto an accelerator
+    (CUDA, XPU, NPU)."""
     device = torch.device(device)
-    if device.type != "cuda":
+    if device.type not in ACCEL:
         return t.to(device)
     return t.pin_memory().to(device, non_blocking=True)
 

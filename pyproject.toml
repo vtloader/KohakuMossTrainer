@@ -12,7 +12,7 @@ license = { text = "KohakuMoss License 1.0 (Apache-2.0 with a naming requirement
 authors = [{ name = "Kohaku-Blueleaf" }]
 dependencies = [
     # the one torch pin: the install helpers and docs repeat it (tests/rules/test_torch_pin.py)
-    "torch>=2.13,<2.15",
+    "torch>=2.10,<2.15",
     "numpy",
     "packaging",
     "pillow>=9.4",
@@ -38,6 +38,8 @@ kernels-cuda = [
 ]
 # Intel's Triton (pytorch-triton-xpu) comes with the XPU torch wheel
 kernels-xpu = []
+# Ascend: torch-npu is the device bridge; triton-ascend is optional (no kernel here yet)
+kernels-npu = ["torch-npu==2.10.0"]
 kernels = ["kohakumoss[kernels-cuda]"]
 baselines = ["flash-linear-attention", "causal-conv1d; sys_platform != 'win32'"]
 quant = ["bitsandbytes"]
@@ -51,11 +53,16 @@ bench = ["matplotlib", "pandas"]
 # default sets per accelerator (docs/guides/install.md)
 cuda = ["kohakumoss[kernels-cuda,quant]"]
 xpu = ["kohakumoss[kernels-xpu,quant]"]
+# the Ascend default: torch-npu (torch itself comes from the NPU install helper)
+npu = ["kohakumoss[kernels-npu]"]
+# the Gradio page (`kohakumoss-webui`); everything else works without it
+webui = ["gradio>=5"]
 
 [project.scripts]
 kohakumoss-doctor = "kohakumoss.cli.doctor:main"
 kohakumoss-config = "kohakumoss.cli.config.main:main"
 kohakumoss-tune = "kohakumoss.cli.tune:main"
+kohakumoss-webui = "kohakumoss.webui:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -100,7 +107,8 @@ markers = [
     "sm89: needs sm89",
     "sm120: needs sm120",
     "xpu: needs an Intel XPU",
-    "gpu: needs a CUDA GPU or an Intel XPU",
+    "npu: needs an Ascend NPU",
+    "gpu: needs a CUDA GPU, an Intel XPU or an Ascend NPU",
     "windows: Windows-specific",
     "multi_gpu: needs two or more GPUs",
     "real_weights: needs KOHAKUMOSS_WEIGHTS",

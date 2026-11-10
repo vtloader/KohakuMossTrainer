@@ -118,6 +118,57 @@ def fsdp_problems(k: dict) -> list[str]:
     return p
 
 
+def _tp_widths(k: dict) -> list[str]:
+    """The head and FFN widths must divide over the TP ranks (the attention is split by
+    head, the FFN by column)."""
+    from kohakumoss.model import resolve_config
+    from kohakumoss.parallel.tp import valid_width
+
+    world = len(k["DEVICES"])
+    cfg = resolve_config(k["VARIANT"], k["ARCH_OVERRIDES"] or None)
+    p = []
+    for name, size in (
+        ("heads", cfg.heads),
+        ("ffn_dim", cfg.ffn_dim),
+        ("text_embedder.blocks[].qkv heads", cfg.heads),
+        ("text_embedder.blocks[].ffn_up / ffn_gate", cfg.ffn_dim),
+    ):
+        if not valid_width(size, world):
+            p.append(f"TP={world}: {name}={size} does not divide by {world}")
+    return p
+
+
+def tp_problems(k: dict) -> list[str]:
+    """PARALLEL='tp': two or more devices, an accelerator backend, widths that divide,
+    and no in-loop sampling (rank 0 only holds a shard of the model)."""
+    p = _windows_problems(k) + _no_loop_sampling(k)
+    world = len(k["DEVICES"])
+    if world < 2:
+        p.append(
+            f"PARALLEL='tp' splits the weights over two or more devices, got DEVICES="
+            f"{tuple(k['DEVICES'])}"
+        )
+    if world >= 2:
+        p += _tp_widths(k)
+    if dist_backend(k) == "gloo":
+        p.append(
+            "PARALLEL='tp' runs a collective per block per step (all-reduce of the row "
+            "parallel outputs): DIST_BACKEND='nccl' / 'hccl' is required"
+        )
+    if k["OPTIMIZER"] == "muon":
+        p.append(
+            "OPTIMIZER='muon' orthogonalises a whole matrix; under PARALLEL='tp' each "
+            "rank holds a slice of it and the orthogonal factor of the slices differs "
+            "from the whole's: use PARALLEL='ddp' / 'none' or another optimizer"
+        )
+    return p
+
+
+def tp_plan_problems(k: dict, plan) -> list[str]:
+    """PARALLEL='tp' with a memory plan: resident blocks, per-step optimiser."""
+    return _in_backward_steps(k, plan) + _resident(k, plan)
+
+
 def pipeline_layout_problems(k: dict) -> list[str]:
     """PARALLEL='pipeline': the schedule over the stages, the pipeline's data plan, no
     in-loop sampling."""
@@ -144,6 +195,7 @@ ALLOWED = {
     "is not",
     "threaded": "checkpointing (every CHECKPOINT) is supported there, memory offload "
     "is not",
+    "tp": "checkpointing (every CHECKPOINT) is supported there, memory offload is not",
 }
 
 

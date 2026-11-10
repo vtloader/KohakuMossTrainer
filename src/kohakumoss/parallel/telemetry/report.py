@@ -107,11 +107,63 @@ class NoSmi:
         return None
 
 
+class NpuSmiSampler:
+    """`npu-smi info` memory (MiB) and AICore utilization (%) of one device every
+    `period_ms` (a background `npu-smi` process, one csv line per chip); `take()` gives
+    the peak memory (GiB) and the mean utilization since the last call. A build whose
+    `npu-smi` takes no `-lms` is `NoSmi`."""
+
+    def __init__(self, device: torch.device, period_ms: int = 200):
+        card = 0 if device.index is None else device.index
+        self.proc = subprocess.Popen(
+            ["npu-smi", "info", "-i", str(card), "-lms", str(period_ms)],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+        )
+        self.lock = threading.Lock()
+        self.window = [0.0, 0.0, 0]
+        self.peak = 0.0
+        self.thread = threading.Thread(target=self._read, daemon=True)
+        self.thread.start()
+
+    def _read(self) -> None:
+        for line in self.proc.stdout:
+            fields = [f.strip() for f in line.split()]
+            if len(fields) < 3:
+                continue
+            try:
+                mem, util = float(fields[-2]) / 1024, float(fields[-1])
+            except (ValueError, IndexError):
+                continue
+            with self.lock:
+                w = self.window
+                w[0], w[1], w[2] = max(w[0], mem), w[1] + util, w[2] + 1
+                self.peak = max(self.peak, mem)
+
+    def take(self) -> dict[str, float]:
+        with self.lock:
+            mem, util, n = self.window
+            self.window = [0.0, 0.0, 0]
+        if not n:
+            return {}
+        return {"smi_mem_peak_gib": mem, "smi_util_mean": util / n}
+
+    def close(self) -> None:
+        self.proc.terminate()
+
+
 def build_smi(device: torch.device):
-    if torch.device(device).type != "cuda":
+    device = torch.device(device)
+    if device.type == "npu":
+        try:
+            return NpuSmiSampler(device)
+        except (OSError, ValueError):
+            return NoSmi()
+    if device.type != "cuda":
         return NoSmi()
     try:
-        return SmiSampler(torch.device(device))
+        return SmiSampler(device)
     except OSError:
         return NoSmi()
 
@@ -149,8 +201,8 @@ class RankReport:
         self.rank, self.world, self.data_world = rank, world, data_world
         self.device = torch.device(device)
         self.name = (
-            torch.cuda.get_device_name(self.device)
-            if self.device.type == "cuda"
+            torch.get_device_module(self.device).get_device_name(self.device)
+            if self.device.type in ("cuda", "xpu", "npu")
             else self.device.type
         )
         self.flops = flops

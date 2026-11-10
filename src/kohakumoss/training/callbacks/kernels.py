@@ -172,7 +172,7 @@ def retune_callbacks(k: dict) -> list:
 def vram_callbacks(k: dict, device: torch.device) -> list:
     """The step-1 prewarm-vs-training VRAM report, when TUNE times kernels on an
     accelerator."""
-    accel = torch.device(device).type in ("cuda", "xpu")
+    accel = torch.device(device).type in ("cuda", "xpu", "npu")
     return [PrewarmVram(torch.device(device))] if tunes(k) and accel else []
 
 

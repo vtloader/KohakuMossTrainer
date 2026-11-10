@@ -69,7 +69,7 @@ def flop_costs(parts, shape: PipeShape) -> StageCosts:
 
 def _timer(device: torch.device) -> Callable[[Callable], float]:
     """`time(fn)` -> wall ms of one call, synchronised on `device`."""
-    if device.type != "cuda":
+    if device.type not in ("cuda", "xpu", "npu"):
 
         def host(fn) -> float:
             t0 = time.perf_counter()
@@ -78,16 +78,16 @@ def _timer(device: torch.device) -> Callable[[Callable], float]:
 
         return host
 
-    def cuda(fn) -> float:
-        a = torch.cuda.Event(enable_timing=True)
-        b = torch.cuda.Event(enable_timing=True)
+    def accel(fn) -> float:
+        a = torch.Event(device=device, enable_timing=True)
+        b = torch.Event(device=device, enable_timing=True)
         a.record()
         fn()
         b.record()
         b.synchronize()
         return a.elapsed_time(b)
 
-    return cuda
+    return accel
 
 
 def _median(fn, timer, warmup: int, iters: int) -> float:
@@ -187,7 +187,11 @@ def rank_speeds(device, world: int, group=None) -> list[float]:
     measured dense-matmul TFLOP/s (collective)."""
     if world == 1:
         return [1.0]
-    name = torch.cuda.get_device_name(device) if device.type == "cuda" else "cpu"
+    name = (
+        torch.get_device_module(device).get_device_name(device)
+        if device.type in ("cuda", "xpu", "npu")
+        else "cpu"
+    )
     names = [None] * world
     dist.all_gather_object(names, name, group=group)
     if len(set(names)) == 1:

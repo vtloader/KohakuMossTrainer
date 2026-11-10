@@ -15,10 +15,13 @@ TOP_KERNELS = 40
 
 
 def kind_of(event: dict) -> str:
-    """`comm` (an NCCL kernel), `copy` (memcpy / memset) or `compute`."""
+    """`comm` (a collective kernel), `copy` (memcpy / memset) or `compute`."""
     if event.get("cat") in COPY_CATS:
         return "copy"
-    return "comm" if event.get("name", "").startswith("nccl") else "compute"
+    name = event.get("name", "")
+    # NCCL on CUDA / XPU, HCCL (hcom_*) on Ascend NPU
+    comm = name.startswith(("nccl", "hccl", "hcom", "Hccl", "HCCL"))
+    return "comm" if comm else "compute"
 
 
 def device_events(events: list[dict], device: int) -> list[dict]:

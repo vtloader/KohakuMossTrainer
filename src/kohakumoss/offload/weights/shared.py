@@ -63,9 +63,14 @@ class SharedHost:
         self.offset = 0
 
     def _register(self) -> bool:
-        cudart = torch.cuda.cudart()
-        err = cudart.cudaHostRegister(self.buf.data_ptr(), self.nbytes, 0)
-        return err == cudart.cudaError.success
+        """Page-lock the mapping through the CUDA runtime; False on a build that has
+        no cudart (an XPU / NPU run does not pin this region)."""
+        cudart = getattr(torch.cuda, "cudart", None)
+        if cudart is None or not torch.cuda.is_available():
+            return False
+        runtime = cudart()
+        err = runtime.cudaHostRegister(self.buf.data_ptr(), self.nbytes, 0)
+        return err == runtime.cudaError.success
 
     def take(self, shape, dtype: torch.dtype) -> Tensor:
         """The next view of `shape` / `dtype` in the region."""

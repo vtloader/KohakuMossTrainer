@@ -316,6 +316,20 @@ def tilelang_status() -> Status:
     return Status(True, version("tilelang") or "?")
 
 
+def npu_status() -> Status:
+    """torch_npu presence and the CANN runtime the wheel was built against."""
+    if version("torch-npu") is None and not installed("torch_npu"):
+        return Status(False, "torch-npu not installed")
+    try:
+        import torch_npu
+    except ImportError as err:
+        return Status(False, f"torch-npu import failed: {err}")
+    found = getattr(torch_npu, "__version__", "?")
+    if not getattr(torch_npu, "npu", None) or not torch_npu.npu.is_available():
+        return Status(False, f"torch-npu {found}: no NPU device visible")
+    return Status(True, str(found))
+
+
 def report() -> dict[str, str]:
     """Versions and component status, one line each (the doctor's view)."""
     out = {
@@ -326,8 +340,11 @@ def report() -> dict[str, str]:
         "nvcc": str(nvcc_version()),
         "cuda.available": str(torch.cuda.is_available()),
         "xpu.available": str(hasattr(torch, "xpu") and torch.xpu.is_available()),
+        "npu.available": str(hasattr(torch, "npu") and torch.npu.is_available()),
     }
     for name, status in (("triton", triton_status()), ("tilelang", tilelang_status())):
         out[name] = ("ok " if status.ok else "missing: ") + status.detail
+    npu = npu_status()
+    out["npu"] = ("ok " if npu.ok else "missing: ") + npu.detail
     out.update({f"compiler.{k}": v for k, v in compilers().items()})
     return out
